@@ -1,4 +1,6 @@
 mod cpu;
+mod dmg;
+mod mmu;
 
 use std::fs;
 use std::env;
@@ -10,8 +12,9 @@ fn main() {
 
     let rom = read_bin(rom_file_name);
 
-    let mut cpu = cpu::Cpu::new();
-    println!("{:#?}", &cpu);
+    let mut dmg = dmg::Dmg::new(rom);
+    dmg.run();
+//    println!("{:#?}", &dmg);
 }
 
 fn read_bin<P: AsRef<Path>>(path: P) -> Vec<u8> {
