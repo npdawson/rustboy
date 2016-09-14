@@ -107,7 +107,7 @@ impl Cpu {
                 self.last_t = 8;
                 println!("LD B, {:#X}", self.reg_b);
             }
-            0x0B => self.dec16(reg16::BC),
+            0x0B => self.dec16(Reg16::BC),
             0x0C => self.inc8(Reg8::C),
             0x0D => self.dec8(Reg8::C),
             0x0E => {
@@ -121,9 +121,9 @@ impl Cpu {
             0x13 => self.inc16(Reg16::DE),
             0x14 => self.inc8(Reg8::D),
             0x16 => self.dec8(Reg8::D),
-            0x1B => self.dec16(reg16::DE),
-            0x1C => self.inc8(reg8::E),
-            0x1D => self.dec8(reg8::E),
+            0x1B => self.dec16(Reg16::DE),
+            0x1C => self.inc8(Reg8::E),
+            0x1D => self.dec8(Reg8::E),
             0x20 => {
                 // TODO JR NZ,r8
                 let rel_addr = self.read_byte(pc + 1) as i8;
@@ -184,17 +184,77 @@ impl Cpu {
                 println!("LD A, {:#X}", self.reg_a);
             }
 
-            0xAF => {
-                // TODO XOR A
-                self.reg_a = 0;
-                self.flag_zero = false;
-                self.flag_sub = false;
-                self.flag_half = false;
-                self.flag_carry = false;
-                self.last_m = 1;
-                self.last_t = 4;
-                println!("XOR A");
-            }
+            0x80 => self.add(Reg8::B),
+            0x81 => self.add(Reg8::C),
+            0x82 => self.add(Reg8::D),
+            0x83 => self.add(Reg8::E),
+            0x84 => self.add(Reg8::H),
+            0x85 => self.add(Reg8::L),
+            0x86 => self.add(Reg8::At_HL),
+            0x87 => self.add(Reg8::A),
+
+            0x88 => self.adc(Reg8::B),
+            0x89 => self.adc(Reg8::C),
+            0x8A => self.adc(Reg8::D),
+            0x8B => self.adc(Reg8::E),
+            0x8C => self.adc(Reg8::H),
+            0x8D => self.adc(Reg8::L),
+            0x8E => self.adc(Reg8::At_HL),
+            0x8F => self.adc(Reg8::A),
+
+            0x90 => self.sub(Reg8::B),
+            0x91 => self.sub(Reg8::C),
+            0x92 => self.sub(Reg8::D),
+            0x93 => self.sub(Reg8::E),
+            0x94 => self.sub(Reg8::H),
+            0x95 => self.sub(Reg8::L),
+            0x96 => self.sub(Reg8::At_HL),
+            0x97 => self.sub(Reg8::A),
+
+            0x98 => self.sbc(Reg8::B),
+            0x99 => self.sbc(Reg8::C),
+            0x9A => self.sbc(Reg8::D),
+            0x9B => self.sbc(Reg8::E),
+            0x9C => self.sbc(Reg8::H),
+            0x9D => self.sbc(Reg8::L),
+            0x9E => self.sbc(Reg8::At_HL),
+            0x9F => self.sbc(Reg8::A),
+
+            0xA0 => self.and(Reg8::B),
+            0xA1 => self.and(Reg8::C),
+            0xA2 => self.and(Reg8::D),
+            0xA3 => self.and(Reg8::E),
+            0xA4 => self.and(Reg8::H),
+            0xA5 => self.and(Reg8::L),
+            0xA6 => self.and(Reg8::At_HL),
+            0xA7 => self.and(Reg8::A),
+
+            0xA8 => self.xor(Reg8::B),
+            0xA9 => self.xor(Reg8::C),
+            0xAA => self.xor(Reg8::D),
+            0xAB => self.xor(Reg8::E),
+            0xAC => self.xor(Reg8::H),
+            0xAD => self.xor(Reg8::L),
+            0xAE => self.xor(Reg8::At_HL),
+            0xAF => self.xor(Reg8::A),
+
+            0xB0 => self.or(Reg8::B),
+            0xB1 => self.or(Reg8::C),
+            0xB2 => self.or(Reg8::D),
+            0xB3 => self.or(Reg8::E),
+            0xB4 => self.or(Reg8::H),
+            0xB5 => self.or(Reg8::L),
+            0xB6 => self.or(Reg8::At_HL),
+            0xB7 => self.or(Reg8::A),
+
+            0xB8 => self.cp(Reg8::B),
+            0xB9 => self.cp(Reg8::C),
+            0xBA => self.cp(Reg8::D),
+            0xBB => self.cp(Reg8::E),
+            0xBC => self.cp(Reg8::H),
+            0xBD => self.cp(Reg8::L),
+            0xBE => self.cp(Reg8::At_HL),
+            0xBF => self.cp(Reg8::A),
 
             0xC3 => {
                 // TODO JP a16
@@ -204,6 +264,10 @@ impl Cpu {
                 self.last_t = 16;
                 println!("JP {:#X}", self.reg_pc);
             }
+
+            0xC6 => self.addi(false),
+
+            0xCE => self.addi(true),
 
             0xE0 => {
                 // TODO LDH (a8),A
@@ -259,9 +323,206 @@ impl Cpu {
         self.clock_t += self.last_t;
     }
 
+    fn add(&mut self, reg: Reg8) {
+        self.last_m = 1;
+        self.last_t = 4;
+        let old = self.reg_a;
+        let other_reg = match reg {
+            Reg8::A => {
+                self.reg_a = self.reg_a.wrapping_add(self.reg_a);
+                self.reg_a
+            },
+            Reg8::B => {
+                self.reg_a = self.reg_a.wrapping_add(self.reg_b);
+                self.reg_b
+            },
+            Reg8::C => {
+                self.reg_a = self.reg_a.wrapping_add(self.reg_c);
+                self.reg_c
+            },
+            Reg8::D => {
+                self.reg_a = self.reg_a.wrapping_add(self.reg_d);
+                self.reg_d
+            },
+            Reg8::E => {
+                self.reg_a = self.reg_a.wrapping_add(self.reg_e);
+                self.reg_e
+            },
+            Reg8::H => {
+                self.reg_a = self.reg_a.wrapping_add(self.reg_h);
+                self.reg_h
+            },
+            Reg8::L => {
+                self.reg_a = self.reg_a.wrapping_add(self.reg_l);
+                self.reg_l
+            },
+            Reg8::At_HL => {
+                let addr = (self.reg_h as u16) << 8 | self.reg_l as u16;
+                let other = self.read_byte(addr);
+                self.reg_a = self.reg_a.wrapping_add(other);
+                self.last_m = 2;
+                self.last_t = 8;
+                other
+            },
+        };
+        let value = self.reg_a;
+        self.flag_zero = value == 0x00;
+        self.flag_sub = false;
+        self.flag_half = (old & 0x0F + other_reg & 0x0F) & 0x10 == 0x10;
+        self.flag_carry = (old as u16) + (other_reg as u16) > 255;
+    }
+
+    fn addi(&mut self, carry: bool) {
+        let old = self.reg_a;
+        let addr = self.reg_pc;
+        let value = self.read_byte(addr);
+        self.reg_pc += 1;
+        let mut result = old.wrapping_add(value);
+        if carry && self.flag_carry { result = result.wrapping_add(1); };
+        self.reg_a = result;
+        self.flag_zero = result == 0x00;
+        self.flag_sub = false;
+        self.flag_half = (old & 0xF + value & 0xF) & 0x10 == 0x10;
+        if carry && self.flag_carry {
+            self.flag_carry = (old as u16) + (value as u16) + 1 > 255;
+        } else {
+            self.flag_carry = (old as u16) + (value as u16) > 255;
+        }
+        self.last_m = 2;
+        self.last_t = 8;
+    }
+
+    fn adc(&mut self, reg: Reg8) {
+        self.last_m = 1;
+        self.last_t = 4;
+        let old = self.reg_a;
+        let other_reg = match reg {
+            Reg8::A => {
+                self.reg_a = self.reg_a.wrapping_add(self.reg_a);
+                self.reg_a
+            },
+            Reg8::B => {
+                self.reg_a = self.reg_a.wrapping_add(self.reg_b);
+                self.reg_b
+            },
+            Reg8::C => {
+                self.reg_a = self.reg_a.wrapping_add(self.reg_c);
+                self.reg_c
+            },
+            Reg8::D => {
+                self.reg_a = self.reg_a.wrapping_add(self.reg_d);
+                self.reg_d
+            },
+            Reg8::E => {
+                self.reg_a = self.reg_a.wrapping_add(self.reg_e);
+                self.reg_e
+            },
+            Reg8::H => {
+                self.reg_a = self.reg_a.wrapping_add(self.reg_h);
+                self.reg_h
+            },
+            Reg8::L => {
+                self.reg_a = self.reg_a.wrapping_add(self.reg_l);
+                self.reg_l
+            },
+            Reg8::At_HL => {
+                let addr = (self.reg_h as u16) << 8 | self.reg_l as u16;
+                let other = self.read_byte(addr);
+                self.reg_a = self.reg_a.wrapping_add(other);
+                self.last_m = 2;
+                self.last_t = 8;
+                other
+            },
+        };
+        if self.flag_carry {
+            self.reg_a += 1;
+        }
+        let value = self.reg_a;
+        self.flag_zero = value == 0x00;
+        self.flag_sub = false;
+        self.flag_half = (old & 0x0F + other_reg & 0x0F) & 0x10 == 0x10;
+        self.flag_carry = if self.flag_carry {
+            (old as u16) + (other_reg as u16) + 1 > 255
+        } else {
+            (old as u16) + (other_reg as u16) > 255
+        }
+    }
+
+    fn and(&mut self, reg: Reg8) {
+        self.last_m = 1;
+        self.last_t = 4;
+        match reg {
+            Reg8::A => self.reg_a = self.reg_a & self.reg_a,
+            Reg8::B => self.reg_a = self.reg_a & self.reg_b,
+            Reg8::C => self.reg_a = self.reg_a & self.reg_c,
+            Reg8::D => self.reg_a = self.reg_a & self.reg_d,
+            Reg8::E => self.reg_a = self.reg_a & self.reg_e,
+            Reg8::H => self.reg_a = self.reg_a & self.reg_h,
+            Reg8::L => self.reg_a = self.reg_a & self.reg_l,
+            Reg8::At_HL => {
+                let addr = (self.reg_h as u16) << 8 | self.reg_l as u16;
+                self.reg_a = self.reg_a & self.read_byte(addr);
+                self.last_m = 2;
+                self.last_t = 8;
+            },
+        };
+        self.flag_zero = self.reg_a == 0x00;
+        self.flag_sub = false;
+        self.flag_half = true;
+        self.flag_carry = false;
+    }
+
+    fn cp(&mut self, reg: Reg8) {
+        self.last_m = 1;
+        self.last_t = 4;
+        let old = self.reg_a;
+        let value;
+        let result = match reg {
+            Reg8::A => {
+                value = self.reg_a;
+                self.reg_a.wrapping_sub(self.reg_a)
+            },
+            Reg8::B => {
+                value = self.reg_b;
+                self.reg_a.wrapping_sub(self.reg_b)
+            },
+            Reg8::C => {
+                value = self.reg_c;
+                self.reg_a.wrapping_sub(self.reg_c)
+            },
+            Reg8::D => {
+                value = self.reg_d;
+                self.reg_a.wrapping_sub(self.reg_d)
+            },
+            Reg8::E => {
+                value = self.reg_e;
+                self.reg_a.wrapping_sub(self.reg_e)
+            },
+            Reg8::H => {
+                value = self.reg_h;
+                self.reg_a.wrapping_sub(self.reg_h)
+            },
+            Reg8::L => {
+                value = self.reg_l;
+                self.reg_a.wrapping_sub(self.reg_l)
+            },
+            Reg8::At_HL => {
+                let addr = (self.reg_h as u16) << 8 | self.reg_l as u16;
+                value = self.read_byte(addr);
+                self.last_m = 2;
+                self.last_t = 8;
+                self.reg_a.wrapping_sub(value)
+            },
+        };
+        self.flag_zero = result == 0x00;
+        self.flag_sub = true;
+        self.flag_half = old & 0x0F < value & 0x0F;
+        self.flag_carry = old < value;
+    }
+
     fn dec8(&mut self, reg: Reg8) {
         let mut old = 0;
-        let mut value = 0;
+        let value;
         self.last_m = 1;
         self.last_t = 4;
         match reg {
@@ -345,7 +606,7 @@ impl Cpu {
 
     fn inc8(&mut self, reg: Reg8) {
         let mut old = 0;
-        let mut value = 0;
+        let value;
         self.last_m = 1;
         self.last_t = 4;
         match reg {
@@ -425,6 +686,155 @@ impl Cpu {
         }
         self.last_m = 2;
         self.last_t = 8;
+    }
+
+    fn or(&mut self, reg: Reg8) {
+        self.last_m = 1;
+        self.last_t = 4;
+        match reg {
+            Reg8::A => self.reg_a = self.reg_a | self.reg_a,
+            Reg8::B => self.reg_a = self.reg_a | self.reg_b,
+            Reg8::C => self.reg_a = self.reg_a | self.reg_c,
+            Reg8::D => self.reg_a = self.reg_a | self.reg_d,
+            Reg8::E => self.reg_a = self.reg_a | self.reg_e,
+            Reg8::H => self.reg_a = self.reg_a | self.reg_h,
+            Reg8::L => self.reg_a = self.reg_a | self.reg_l,
+            Reg8::At_HL => {
+                let addr = (self.reg_h as u16) << 8 | self.reg_l as u16;
+                self.reg_a = self.reg_a | self.read_byte(addr);
+                self.last_m = 2;
+                self.last_t = 8;
+            },
+        };
+        self.flag_zero = self.reg_a == 0x00;
+        self.flag_sub = false;
+        self.flag_half = false;
+        self.flag_carry = false;
+    }
+
+    fn sbc(&mut self, reg: Reg8) {
+        self.last_m = 1;
+        self.last_t = 4;
+        let old = self.reg_a;
+        let other_reg = match reg {
+            Reg8::A => {
+                self.reg_a = self.reg_a.wrapping_sub(self.reg_a);
+                self.reg_a
+            },
+            Reg8::B => {
+                self.reg_a = self.reg_a.wrapping_sub(self.reg_b);
+                self.reg_b
+            },
+            Reg8::C => {
+                self.reg_a = self.reg_a.wrapping_sub(self.reg_c);
+                self.reg_c
+            },
+            Reg8::D => {
+                self.reg_a = self.reg_a.wrapping_sub(self.reg_d);
+                self.reg_d
+            },
+            Reg8::E => {
+                self.reg_a = self.reg_a.wrapping_sub(self.reg_e);
+                self.reg_e
+            },
+            Reg8::H => {
+                self.reg_a = self.reg_a.wrapping_sub(self.reg_h);
+                self.reg_h
+            },
+            Reg8::L => {
+                self.reg_a = self.reg_a.wrapping_sub(self.reg_l);
+                self.reg_l
+            },
+            Reg8::At_HL => {
+                let addr = (self.reg_h as u16) << 8 | self.reg_l as u16;
+                let other = self.read_byte(addr);
+                self.reg_a = self.reg_a.wrapping_sub(other);
+                self.last_m = 2;
+                self.last_t = 8;
+                other
+            },
+        };
+        if self.flag_carry {
+            self.reg_a -= 1;
+        }
+        let value = self.reg_a;
+        self.flag_zero = value == 0x00;
+        self.flag_sub = true;
+        self.flag_half = old & 0x0F < other_reg & 0x0F;
+        self.flag_carry = old < other_reg;
+    }
+
+    fn sub(&mut self, reg: Reg8) {
+        self.last_m = 1;
+        self.last_t = 4;
+        let old = self.reg_a;
+        let other_reg = match reg {
+            Reg8::A => {
+                self.reg_a = self.reg_a.wrapping_sub(self.reg_a);
+                self.reg_a
+            },
+            Reg8::B => {
+                self.reg_a = self.reg_a.wrapping_sub(self.reg_b);
+                self.reg_b
+            },
+            Reg8::C => {
+                self.reg_a = self.reg_a.wrapping_sub(self.reg_c);
+                self.reg_c
+            },
+            Reg8::D => {
+                self.reg_a = self.reg_a.wrapping_sub(self.reg_d);
+                self.reg_d
+            },
+            Reg8::E => {
+                self.reg_a = self.reg_a.wrapping_sub(self.reg_e);
+                self.reg_e
+            },
+            Reg8::H => {
+                self.reg_a = self.reg_a.wrapping_sub(self.reg_h);
+                self.reg_h
+            },
+            Reg8::L => {
+                self.reg_a = self.reg_a.wrapping_sub(self.reg_l);
+                self.reg_l
+            },
+            Reg8::At_HL => {
+                let addr = (self.reg_h as u16) << 8 | self.reg_l as u16;
+                let other = self.read_byte(addr);
+                self.reg_a = self.reg_a.wrapping_sub(other);
+                self.last_m = 2;
+                self.last_t = 8;
+                other
+            },
+        };
+        let value = self.reg_a;
+        self.flag_zero = value == 0x00;
+        self.flag_sub = true;
+        self.flag_half = old & 0x0F < other_reg & 0x0F;
+        self.flag_carry = old < other_reg;
+    }
+
+    fn xor(&mut self, reg: Reg8) {
+        self.last_m = 1;
+        self.last_t = 4;
+        match reg {
+            Reg8::A => self.reg_a = self.reg_a ^ self.reg_a,
+            Reg8::B => self.reg_a = self.reg_a ^ self.reg_b,
+            Reg8::C => self.reg_a = self.reg_a ^ self.reg_c,
+            Reg8::D => self.reg_a = self.reg_a ^ self.reg_d,
+            Reg8::E => self.reg_a = self.reg_a ^ self.reg_e,
+            Reg8::H => self.reg_a = self.reg_a ^ self.reg_h,
+            Reg8::L => self.reg_a = self.reg_a ^ self.reg_l,
+            Reg8::At_HL => {
+                let addr = (self.reg_h as u16) << 8 | self.reg_l as u16;
+                self.reg_a = self.reg_a ^ self.read_byte(addr);
+                self.last_m = 2;
+                self.last_t = 8;
+            },
+        };
+        self.flag_zero = self.reg_a == 0x00;
+        self.flag_sub = false;
+        self.flag_half = false;
+        self.flag_carry = false;
     }
 
     fn read_byte(&mut self, addr: u16) -> u8 {
