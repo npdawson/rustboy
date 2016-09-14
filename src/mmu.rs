@@ -1,4 +1,5 @@
 use std::fmt;
+use super::byteorder::{ByteOrder, LittleEndian};
 
 const RAM_SIZE: usize = 0x2000;
 const ROM_BANK_SIZE: usize = 0x4000;
@@ -93,6 +94,33 @@ impl Mmu {
         }
     }
 
+    pub fn read_word(&self, addr: usize) -> u16 {
+        if addr <= ROM_END {
+            LittleEndian::read_u16(&self.rom[addr..])
+        } else if addr <= VRAM_END {
+            LittleEndian::read_u16(&self.vram[addr - VRAM_START..])
+        } else if addr <= XRAM_END {
+            LittleEndian::read_u16(&self.xram[addr - XRAM_START..])
+        } else if addr <= ECHO_END {
+            if addr <= WRAM_END {
+               LittleEndian::read_u16(&self.ram[addr - WRAM_START..])
+            } else {
+               LittleEndian::read_u16(&self.ram[addr - ECHO_START..])
+            }
+        } else if addr <= OAM_END {
+            LittleEndian::read_u16(&self.oam[addr - OAM_START..])
+        } else if addr < IOREG_START {
+            //TODO
+            panic!("Unused address space: {:#X}", addr);
+        } else if addr <= IOREG_END {
+            LittleEndian::read_u16(&self.io_regs[addr - IOREG_START..])
+        } else if addr <= HRAM_END  {
+            LittleEndian::read_u16(&self.hram[addr - HRAM_START..])
+        } else {
+            self.ie_reg as u16
+        }
+    }
+
     pub fn write_byte(&mut self, value: u8, addr: usize) {
         match addr {
             ROM_START ... ROM_END => println!("Tried writing to ROM!"),
@@ -104,7 +132,36 @@ impl Mmu {
             IOREG_START ... IOREG_END => self.io_regs[addr - IOREG_START] = value,
             HRAM_START ... HRAM_END => self.hram[addr - HRAM_START] = value,
             IEREG => self.ie_reg = value,
-            _ => panic!("Failed writing {:#X} to addr {:#X}", value, addr)
+            _ => println!("Failed writing {:#X} to addr {:#X}", value, addr)
+        }
+    }
+
+    pub fn write_word(&mut self, value: u16, addr: usize) {
+        match addr {
+            ROM_START ... ROM_END => println!("Tried writing to ROM!"),
+            VRAM_START ... VRAM_END => {
+                LittleEndian::write_u16(&mut self.vram[addr - VRAM_START..], value);
+            }
+            XRAM_START ... XRAM_END => {
+                LittleEndian::write_u16(&mut self.xram[addr - XRAM_START..], value);
+            }
+            WRAM_START ... WRAM_END => {
+                LittleEndian::write_u16(&mut self.ram[addr - WRAM_START..], value);
+            }
+            ECHO_START ... ECHO_END => {
+                LittleEndian::write_u16(&mut self.ram[addr - WRAM_START..], value);
+            }
+            OAM_START ... OAM_END => {
+                LittleEndian::write_u16(&mut self.oam[addr - OAM_START..], value);
+            }
+            IOREG_START ... IOREG_END => {
+                LittleEndian::write_u16(&mut self.io_regs[addr - IOREG_START..], value);
+            }
+            HRAM_START ... HRAM_END => {
+                LittleEndian::write_u16(&mut self.hram[addr - HRAM_START..], value);
+            }
+            IEREG => panic!("Tried to write 16 bits to 8 bit IEREG!"),
+            _ => println!("Failed writing {:#X} to addr {:#X}", value, addr)
         }
     }
 }
