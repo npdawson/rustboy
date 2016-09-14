@@ -14,6 +14,10 @@ fn main() {
 
     let mut dmg = dmg::Dmg::new(rom);
     dmg.run();
+    // dmg.step();
+    // println!("Before: {:#?}", dmg);
+    // dmg.step();
+    // println!("After: {:#?}", dmg);
 //    println!("{:#?}", &dmg);
 }
 
