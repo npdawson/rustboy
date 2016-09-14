@@ -1,5 +1,8 @@
+use std::fmt;
+
 const RAM_SIZE: usize = 0x2000;
 const ROM_BANK_SIZE: usize = 0x4000;
+const ROM_START: usize = 0x0000;
 const ROM_END: usize = 0x7FFF;
 const VRAM_START: usize = 0x8000;
 const VRAM_END: usize = VRAM_START + RAM_SIZE - 1;
@@ -88,5 +91,27 @@ impl Mmu {
         } else {
             self.ie_reg
         }
+    }
+
+    pub fn write_byte(&mut self, value: u8, addr: usize) {
+        match addr {
+            ROM_START ... ROM_END => println!("Tried writing to ROM!"),
+            VRAM_START ... VRAM_END => self.vram[addr - VRAM_START] = value,
+            XRAM_START ... XRAM_END => self.xram[addr - XRAM_START] = value,
+            WRAM_START ... WRAM_END => self.ram[addr - WRAM_START] = value,
+            ECHO_START ... ECHO_END => self.ram[addr - ECHO_START] = value,
+            OAM_START ... OAM_END => self.oam[addr - OAM_START] = value,
+            IOREG_START ... IOREG_END => self.io_regs[addr - IOREG_START] = value,
+            HRAM_START ... HRAM_END => self.hram[addr - HRAM_START] = value,
+            IEREG => self.ie_reg = value,
+            _ => panic!("Failed writing {:#X} to addr {:#X}", value, addr)
+        }
+    }
+}
+
+impl fmt::Debug for Mmu {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // TODO
+        write!(f, "TODO: Impl Debug for MMU")
     }
 }
