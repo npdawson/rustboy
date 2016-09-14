@@ -1,3 +1,5 @@
+extern crate byteorder;
+
 mod cpu;
 mod dmg;
 mod mmu;
@@ -13,10 +15,12 @@ fn main() {
     let rom = read_bin(rom_file_name);
 
     let mut dmg = dmg::Dmg::new(rom);
-    dmg.run();
+    //dmg.run();
     // dmg.step();
-    // println!("Before: {:#?}", dmg);
-    // dmg.step();
+    loop {
+        println!("Current State: {:#?}", dmg);
+        dmg.step();
+    }
     // println!("After: {:#?}", dmg);
 //    println!("{:#?}", &dmg);
 }
