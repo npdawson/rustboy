@@ -18,7 +18,7 @@ fn main() {
     //dmg.run();
     // dmg.step();
     loop {
-        println!("Current State: {:#?}", dmg);
+        //println!("Current State: {:#?}", dmg);
         dmg.step();
     }
     // println!("After: {:#?}", dmg);

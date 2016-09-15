@@ -74,102 +74,58 @@ impl Cpu {
         match opcode {
             0x00 => {
                 // NOP
+                // let next_op = self.read_byte(pc + 1);
+                // if next_op == 0x00 {
+                //     panic!("gah!");
+                // }
                 self.last_m = 1;
                 self.last_t = 4;
                 println!("NOP");
             },
-            0x01 => {
-                //TODO LD BC,d16
-                self.reg_c = self.read_byte(pc + 1);
-                self.reg_b = self.read_byte(pc + 2);
-                self.reg_pc += 2;
-                self.last_m = 3;
-                self.last_t = 12;
-                println!("LD BC, {:#X}{:X}", self.reg_b, self.reg_c);
-            },
-            0x02 => {
-                //TODO LD (BC),A
-                let value = self.reg_a;
-                let addr = (self.reg_b as u16) << 8 | self.reg_c as u16;
-                self.write_byte(value, addr);
-                self.last_m = 2;
-                self.last_t = 8;
-                println!("LD (BC), A");
-            },
+            0x01 => self.ldi16(Reg16::BC),
+            0x02 => self.ld_to_mem(Reg16::BC, ID::None),
             0x03 => self.inc16(Reg16::BC),
             0x04 => self.inc8(Reg8::B),
             0x05 => self.dec8(Reg8::B),
-            0x06 => {
-                // TODO LD B,d8
-                self.reg_b = self.read_byte(pc + 1);
-                self.reg_pc += 1;
-                self.last_m = 2;
-                self.last_t = 8;
-                println!("LD B, {:#X}", self.reg_b);
-            }
+            0x06 => self.ldi(Reg8::B),
+
             0x09 => self.add_HL(Reg16::BC),
+            0x0A => self.ld_from_mem(Reg16::BC, ID::None),
             0x0B => self.dec16(Reg16::BC),
             0x0C => self.inc8(Reg8::C),
             0x0D => self.dec8(Reg8::C),
-            0x0E => {
-                // TODO LD C,d8
-                self.reg_c = self.read_byte(pc + 1);
-                self.reg_pc += 1;
-                self.last_m = 2;
-                self.last_t = 8;
-                println!("LD C, {:#X}", self.reg_c);
-            }
+            0x0E => self.ldi(Reg8::C),
+
+            0x11 => self.ldi16(Reg16::DE),
+            0x12 => self.ld_to_mem(Reg16::DE, ID::None),
             0x13 => self.inc16(Reg16::DE),
             0x14 => self.inc8(Reg8::D),
-            0x16 => self.dec8(Reg8::D),
+            0x15 => self.dec8(Reg8::D),
+            0x16 => self.ldi(Reg8::D),
+
+            0x18 => self.jr(JF::Always),
             0x19 => self.add_HL(Reg16::DE),
+            0x1A => self.ld_from_mem(Reg16::DE, ID::None),
             0x1B => self.dec16(Reg16::DE),
             0x1C => self.inc8(Reg8::E),
             0x1D => self.dec8(Reg8::E),
-            0x20 => {
-                // TODO JR NZ,r8
-                let rel_addr = self.read_byte(pc + 1) as i8;
-                self.reg_pc += 1;
-                if self.flag_zero {
-                    self.last_m = 2;
-                    self.last_t = 8;
-                } else {
-                    self.reg_pc = self.reg_pc.wrapping_add(rel_addr as u16);
-                    self.last_m = 3;
-                    self.last_t = 12;
-                }
-                println!("JR NZ, {}", rel_addr);
-            }
-            0x21 => {
-                // TODO LD HL,d16
-                self.reg_l = self.read_byte(pc + 1);
-                self.reg_h = self.read_byte(pc + 2);
-                self.reg_pc += 2;
-                self.last_m = 3;
-                self.last_t = 12;
-                println!("LD HL, {:#X}{:X}", self.reg_h, self.reg_l);
-            }
+            0x1E => self.ldi(Reg8::E),
 
+            0x20 => self.jr(JF::NZ),
+            0x21 => self.ldi16(Reg16::HL),
+            0x22 => self.ld_to_mem(Reg16::HL, ID::Inc),
             0x23 => self.inc16(Reg16::HL),
             0x24 => self.inc8(Reg8::H),
             0x25 => self.dec8(Reg8::H),
+            0x26 => self.ldi(Reg8::H),
+
+            0x28 => self.jr(JF::Z),
             0x29 => self.add_HL(Reg16::HL),
-            0x2A => {
-                // TODO LD A,(HL+)
-                println!("LD A, (HL+)");
-                let addr = (self.reg_h as u16) << 8 | self.reg_l as u16;
-                let value = self.read_byte(addr);
-                self.reg_a = value;
-                self.reg_l += 1;
-                if self.reg_l == 0x00 {
-                    self.reg_h += 1;
-                }
-                self.last_m = 2;
-                self.last_t = 8;
-            }
+            0x2A => self.ld_from_mem(Reg16::HL, ID::Inc),
             0x2B => self.dec16(Reg16::HL),
             0x2C => self.inc8(Reg8::L),
             0x2D => self.dec8(Reg8::L),
+            0x2E => self.ldi(Reg8::L),
             0x2F => {
                 println!("CPL");
                 self.reg_a = self.reg_a ^ 0xFF;
@@ -178,106 +134,94 @@ impl Cpu {
                 self.last_m = 1;
                 self.last_t = 4;
             }
-            0x31 => {
-                // TODO LD SP,d16
-                let value = self.read_word(pc + 1);
-                self.reg_pc += 2;
-                self.reg_sp = value;
-                self.last_m = 3;
-                self.last_t = 12;
-            }
-            0x32 => {
-                // TODO LD (HL-),A
-                let value = self.reg_a;
-                let addr = (self.reg_h as u16) << 8 | self.reg_l as u16;
-                self.write_byte(value, addr);
-                self.reg_l = self.reg_l.wrapping_sub(1);
-                if self.reg_l == 0xFF {
-                    self.reg_h = self.reg_h.wrapping_sub(1);
-                }
-                self.last_m = 2;
-                self.last_t = 8;
-                println!("LD (HL-),A");
-            }
 
+            0x30 => self.jr(JF::NC),
+            0x31 => self.ldi16(Reg16::SP),
+            0x32 => self.ld_to_mem(Reg16::HL, ID::Dec),
             0x33 => self.inc16(Reg16::SP),
             0x34 => self.inc8(Reg8::AtHL),
             0x35 => self.dec8(Reg8::AtHL),
-            0x36 => {
-                // TODO LD (HL),d8
-                let value = self.read_byte(pc + 1);
-                self.reg_pc += 1;
-                let addr = (self.reg_h as u16) << 8 | self.reg_l as u16;
-                self.write_byte(value, addr);
-                self.last_m = 3;
-                self.last_t = 12;
-                println!("LD (HL), {:#X}", value);
-            }
+            0x36 => self.ldi(Reg8::AtHL),
+
+            0x38 => self.jr(JF::C),
             0x39 => self.add_HL(Reg16::SP),
+            0x3A => self.ld_from_mem(Reg16::HL, ID::Dec),
             0x3B => self.dec16(Reg16::SP),
             0x3C => self.inc8(Reg8::A),
             0x3D => self.dec8(Reg8::A),
-            0x3E => {
-                // TODO LD A,d8
-                self.reg_a = self.read_byte(pc + 1);
-                self.reg_pc += 1;
-                self.last_m = 2;
-                self.last_t = 8;
-                println!("LD A, {:#X}", self.reg_a);
-            }
-            0x47 => {
-                // TODO LD B, A
-                println!("LD B, A");
-                self.reg_b = self.reg_a;
-                self.last_m = 1;
-                self.last_t = 4;
-            }
-            0x4F => {
-                // TODO LD C, A
-                println!("LD C, A");
-                self.reg_c = self.reg_a;
-                self.last_m = 1;
-                self.last_t = 4;
-            }
-            0x56 => {
-                // TODO LD D, (HL)
-                println!("LD D, (HL)");
-                let addr = (self.reg_h as u16) << 8 | self.reg_l as u16;
-                let value = self.read_byte(addr);
-                self.reg_d = value;
-                self.last_m = 2;
-                self.last_t = 8;
-            }
-            0x5E => {
-                // TODO LD E, (HL)
-                println!("LD E, (HL)");
-                let addr = (self.reg_h as u16) << 8 | self.reg_l as u16;
-                let value = self.read_byte(addr);
-                self.reg_e = value;
-                self.last_m = 2;
-                self.last_t = 8;
-            }
-            0x5F => {
-                // TODO LD E, A
-                println!("LD E, A");
-                self.reg_e = self.reg_a;
-                self.last_m = 1;
-                self.last_t = 4;
-            }
-            0x78 => {
-                // TODO LD A, B
-                println!("LD A, B");
-                self.reg_a = self.reg_b;
-                self.last_m = 1;
-                self.last_t = 4;
-            }
-            0x79 => {
-                // TODO LD A, C
-                println!("LD A, C");
-                self.reg_a = self.reg_c;
-                self.last_m = 1;
-                self.last_t = 4;
-            }
+            0x3E => self.ldi(Reg8::A),
+
+            0x40 => self.ld(Reg8::B, Reg8::B),
+            0x41 => self.ld(Reg8::B, Reg8::C),
+            0x42 => self.ld(Reg8::B, Reg8::D),
+            0x43 => self.ld(Reg8::B, Reg8::E),
+            0x44 => self.ld(Reg8::B, Reg8::H),
+            0x45 => self.ld(Reg8::B, Reg8::L),
+            0x46 => self.ld(Reg8::B, Reg8::AtHL),
+            0x47 => self.ld(Reg8::B, Reg8::A),
+
+            0x48 => self.ld(Reg8::C, Reg8::B),
+            0x49 => self.ld(Reg8::C, Reg8::C),
+            0x4A => self.ld(Reg8::C, Reg8::D),
+            0x4B => self.ld(Reg8::C, Reg8::E),
+            0x4C => self.ld(Reg8::C, Reg8::H),
+            0x4D => self.ld(Reg8::C, Reg8::L),
+            0x4E => self.ld(Reg8::C, Reg8::AtHL),
+            0x4F => self.ld(Reg8::C, Reg8::A),
+
+            0x50 => self.ld(Reg8::D, Reg8::B),
+            0x51 => self.ld(Reg8::D, Reg8::C),
+            0x52 => self.ld(Reg8::D, Reg8::D),
+            0x53 => self.ld(Reg8::D, Reg8::E),
+            0x54 => self.ld(Reg8::D, Reg8::H),
+            0x55 => self.ld(Reg8::D, Reg8::L),
+            0x56 => self.ld(Reg8::D, Reg8::AtHL),
+            0x57 => self.ld(Reg8::D, Reg8::A),
+
+            0x58 => self.ld(Reg8::E, Reg8::B),
+            0x59 => self.ld(Reg8::E, Reg8::C),
+            0x5A => self.ld(Reg8::E, Reg8::D),
+            0x5B => self.ld(Reg8::E, Reg8::E),
+            0x5C => self.ld(Reg8::E, Reg8::H),
+            0x5D => self.ld(Reg8::E, Reg8::L),
+            0x5E => self.ld(Reg8::E, Reg8::AtHL),
+            0x5F => self.ld(Reg8::E, Reg8::A),
+
+            0x60 => self.ld(Reg8::H, Reg8::B),
+            0x61 => self.ld(Reg8::H, Reg8::C),
+            0x62 => self.ld(Reg8::H, Reg8::D),
+            0x63 => self.ld(Reg8::H, Reg8::E),
+            0x64 => self.ld(Reg8::H, Reg8::H),
+            0x65 => self.ld(Reg8::H, Reg8::L),
+            0x66 => self.ld(Reg8::H, Reg8::AtHL),
+            0x67 => self.ld(Reg8::H, Reg8::A),
+
+            0x68 => self.ld(Reg8::L, Reg8::B),
+            0x69 => self.ld(Reg8::L, Reg8::C),
+            0x6A => self.ld(Reg8::L, Reg8::D),
+            0x6B => self.ld(Reg8::L, Reg8::E),
+            0x6C => self.ld(Reg8::L, Reg8::H),
+            0x6D => self.ld(Reg8::L, Reg8::L),
+            0x6E => self.ld(Reg8::L, Reg8::AtHL),
+            0x6F => self.ld(Reg8::L, Reg8::A),
+
+            0x70 => self.ld(Reg8::AtHL, Reg8::B),
+            0x71 => self.ld(Reg8::AtHL, Reg8::C),
+            0x72 => self.ld(Reg8::AtHL, Reg8::D),
+            0x73 => self.ld(Reg8::AtHL, Reg8::E),
+            0x74 => self.ld(Reg8::AtHL, Reg8::H),
+            0x75 => self.ld(Reg8::AtHL, Reg8::L),
+            0x77 => self.ld(Reg8::AtHL, Reg8::A),
+
+            0x78 => self.ld(Reg8::A, Reg8::B),
+            0x79 => self.ld(Reg8::A, Reg8::C),
+            0x7A => self.ld(Reg8::A, Reg8::D),
+            0x7B => self.ld(Reg8::A, Reg8::E),
+            0x7C => self.ld(Reg8::A, Reg8::H),
+            0x7D => self.ld(Reg8::A, Reg8::L),
+            0x7E => self.ld(Reg8::A, Reg8::AtHL),
+            0x7F => self.ld(Reg8::A, Reg8::A),
+
             0x80 => self.add(Reg8::B),
             0x81 => self.add(Reg8::C),
             0x82 => self.add(Reg8::D),
@@ -350,27 +294,17 @@ impl Cpu {
             0xBE => self.cp(Reg8::AtHL),
             0xBF => self.cp(Reg8::A),
 
+            0xC0 => self.ret(JF::NZ),
             0xC1 => self.pop(Reg16::BC),
-            0xC3 => {
-                // TODO JP a16
-                let old_pc = self.reg_pc;
-                self.reg_pc = self.read_word(old_pc);
-                self.last_m = 4;
-                self.last_t = 16;
-                println!("JP {:#X}", self.reg_pc);
-            }
+            0xC2 => self.jp(JF::NZ),
+            0xC3 => self.jp(JF::Always),
             0xC5 => self.push(Reg16::BC),
             0xC6 => self.addi(false),
-            0xC9 => {
-                // TODO RET
-                println!("RET");
-                let sp = self.reg_sp;
-                let addr = self.read_word(sp);
-                self.reg_pc = addr;
-                self.reg_sp = sp + 2;
-                self.last_m = 4;
-                self.last_t = 16;
-            }
+            0xC7 => self.rst(0x00),
+
+            0xC8 => self.ret(JF::Z),
+            0xC9 => self.ret(JF::Always),
+            0xCA => self.jp(JF::Z),
             0xCB => {
                 // TODO 0xCB instructions
                 let op = self.read_byte(pc + 1);
@@ -404,18 +338,22 @@ impl Cpu {
                 self.last_t = 24;
             }
             0xCE => self.addi(true),
+            0xCF => self.rst(0x08),
+
+            0xD0 => self.ret(JF::NC),
             0xD1 => self.pop(Reg16::DE),
+            0xD2 => self.jp(JF::NC),
             0xD5 => self.push(Reg16::DE),
-            0xEA => {
-                // TODO LD (a16),A
-                let addr = self.read_word(pc + 1);
-                self.reg_pc += 2;
-                let value = self.reg_a;
-                self.write_byte(value, addr);
-                self.last_m = 4;
-                self.last_t = 16;
-                println!("LD ({:#X}), A", addr);
+            0xD7 => self.rst(0x10),
+
+            0xD8 => self.ret(JF::C),
+            0xD9 => {
+                self.ret(JF::Always);
+                self.ime = true;
             }
+            0xDA => self.jp(JF::C),
+            0xDF => self.rst(0x18),
+
             0xE0 => {
                 // TODO LDH (a8),A
                 let offset = self.read_byte(pc + 1);
@@ -439,6 +377,7 @@ impl Cpu {
             }
             0xE5 => self.push(Reg16::HL),
             0xE6 => self.andi(),
+            0xE7 => self.rst(0x20),
             0xE9 => {
                 // TODO JP (HL)
                 println!("JP (HL)");
@@ -447,16 +386,17 @@ impl Cpu {
                 self.last_m = 1;
                 self.last_t = 4;
             }
-            0xEF => {
-                // TODO RST 28H
-                println!("RST 28H");
-                let sp = self.reg_sp - 2;
-                self.write_word(pc, sp);
-                self.reg_pc = 0x28;
-                self.reg_sp = sp;
+            0xEA => {
+                // TODO LD (a16),A
+                let addr = self.read_word(pc + 1);
+                self.reg_pc += 2;
+                let value = self.reg_a;
+                self.write_byte(value, addr);
                 self.last_m = 4;
                 self.last_t = 16;
+                println!("LD ({:#X}), A", addr);
             }
+            0xEF => self.rst(0x28),
             0xF0 => {
                 // TODO LDH A,(a8)
                 let offset = self.read_byte(pc + 1);
@@ -477,6 +417,15 @@ impl Cpu {
                 println!("DI");
             }
             0xF5 => self.push(Reg16::AF),
+            0xF7 => self.rst(0x30),
+            0xFA => {
+                let pc = self.reg_pc;
+                let addr = self.read_word(pc);
+                self.reg_pc += 2;
+                self.reg_a = self.read_byte(addr);
+                self.last_m = 3;
+                self.last_t = 12;
+            }
             0xFB => {
                 // TODO Enable Interrupts
                 println!("EI");
@@ -499,6 +448,7 @@ impl Cpu {
                 self.last_t = 8;
                 println!("CP {:#X}", value);
             }
+           // 0xFF => self.rst(0x38),
 
             _ => panic!("Unknown opcode: {:#X} at address {:#X}", opcode, pc)
         }
@@ -907,6 +857,176 @@ impl Cpu {
         self.last_t = 8;
     }
 
+    fn jr(&mut self, flag: JF) {
+        let pc = self.reg_pc;
+        let rel_addr = self.read_byte(pc) as i8;
+        self.reg_pc += 1;
+        let jump = match flag {
+            JF::Always => true,
+            JF::Z => self.flag_zero,
+            JF::C => self.flag_carry,
+            JF::NZ => !self.flag_zero,
+            JF::NC => !self.flag_carry,
+        };
+        let jump_addr = self.reg_pc.wrapping_add(rel_addr as u16);
+        if jump {
+            self.reg_pc = jump_addr;
+            self.last_m = 3;
+            self.last_t = 12;
+        } else {
+            self.last_m = 2;
+            self.last_t = 8;
+        }
+    }
+
+    fn jp(&mut self, flag: JF) {
+        let pc = self.reg_pc;
+        let addr = self.read_word(pc);
+        self.reg_pc += 2;
+        let jump = match flag {
+            JF::Always => true,
+            JF::Z => self.flag_zero,
+            JF::C => self.flag_carry,
+            JF::NZ => !self.flag_zero,
+            JF::NC => !self.flag_carry,
+        };
+        if jump {
+            self.reg_pc = addr;
+            self.last_m = 4;
+            self.last_t = 16;
+        } else {
+            self.last_m = 3;
+            self.last_t = 12;
+        }
+    }
+
+    fn ld(&mut self, rd: Reg8, rs: Reg8) { // rs : source ; rd : destination
+        self.last_m = 1;
+        self.last_t = 4;
+        let value = match rs {
+            Reg8::A => self.reg_a,
+            Reg8::B => self.reg_b,
+            Reg8::C => self.reg_c,
+            Reg8::D => self.reg_d,
+            Reg8::E => self.reg_e,
+            Reg8::H => self.reg_h,
+            Reg8::L => self.reg_l,
+            Reg8::AtHL => {
+                let addr = (self.reg_h as u16) << 8 | self.reg_l as u16;
+                self.last_m = 2;
+                self.last_t = 8;
+                self.read_byte(addr)
+            }
+        };
+        match rd {
+            Reg8::A => self.reg_a = value,
+            Reg8::B => self.reg_b = value,
+            Reg8::C => self.reg_c = value,
+            Reg8::D => self.reg_d = value,
+            Reg8::E => self.reg_e = value,
+            Reg8::H => self.reg_h = value,
+            Reg8::L => self.reg_l = value,
+            Reg8::AtHL => {
+                let addr = (self.reg_h as u16) << 8 | self.reg_l as u16;
+                self.write_byte(value, addr);
+                self.last_m = 2;
+                self.last_t = 8;
+            }
+        };
+    }
+
+    fn ldi(&mut self, reg: Reg8) {
+        self.last_m = 2;
+        self.last_t = 8;
+        let pc = self.reg_pc;
+        let value = self.read_byte(pc);
+        self.reg_pc += 1;
+        match reg {
+            Reg8::A => self.reg_a = value,
+            Reg8::B => self.reg_b = value,
+            Reg8::C => self.reg_c = value,
+            Reg8::D => self.reg_d = value,
+            Reg8::E => self.reg_e = value,
+            Reg8::H => self.reg_h = value,
+            Reg8::L => self.reg_l = value,
+            Reg8::AtHL => {
+                let addr = (self.reg_h as u16) << 8 | self.reg_l as u16;
+                self.write_byte(value, addr);
+                self.last_m = 3;
+                self.last_t = 12;
+            }
+        }
+    }
+
+    fn ldi16(&mut self, reg: Reg16) {
+        self.last_m = 3;
+        self.last_t = 12;
+        let pc = self.reg_pc;
+        let value = self.read_word(pc);
+        self.reg_pc += 2;
+        match reg {
+            Reg16::BC => {
+                self.reg_b = (value >> 8) as u8;
+                self.reg_c = (value & 0xFF) as u8;
+            }
+            Reg16::DE => {
+                self.reg_d = (value >> 8) as u8;
+                self.reg_e = (value & 0xFF) as u8;
+            }
+            Reg16::HL => {
+                self.reg_h = (value >> 8) as u8;
+                self.reg_l = (value & 0xFF) as u8;
+            }
+            Reg16::SP => self.reg_sp = value,
+            _ => panic!("Can't load imm16 into AF!")
+        }
+    }
+
+    fn ld_from_mem(&mut self, reg: Reg16, id: ID) {
+        let addr;
+        match reg {
+            Reg16::BC => addr = (self.reg_b as u16) << 8 | self.reg_c as u16,
+            Reg16::DE => addr = (self.reg_d as u16) << 8 | self.reg_e as u16,
+            Reg16::HL => {
+                addr = (self.reg_h as u16) << 8 | self.reg_l as u16;
+                let next_addr = match id {
+                    ID::None => panic!("Use regular ld() function!"),
+                    ID::Inc => addr.wrapping_add(1),
+                    ID::Dec => addr.wrapping_sub(1),
+                };
+                self.reg_h = (next_addr >> 8) as u8;
+                self.reg_l = (next_addr & 0xFF) as u8;
+            },
+            _ => panic!("Can't load from address in AF!")
+        };
+        self.reg_a = self.read_byte(addr);
+        self.last_m = 2;
+        self.last_t = 8;
+    }
+
+    fn ld_to_mem(&mut self, reg: Reg16, id: ID) {
+        let addr;
+        match reg {
+            Reg16::BC => addr = (self.reg_b as u16) << 8 | self.reg_c as u16,
+            Reg16::DE => addr = (self.reg_d as u16) << 8 | self.reg_e as u16,
+            Reg16::HL => {
+                addr = (self.reg_h as u16) << 8 | self.reg_l as u16;
+                let next_addr = match id {
+                    ID::None => panic!("Use regular ld() function!"),
+                    ID::Inc => addr.wrapping_add(1),
+                    ID::Dec => addr.wrapping_sub(1),
+                };
+                self.reg_h = (next_addr >> 8) as u8;
+                self.reg_l = (next_addr & 0xFF) as u8;
+            },
+            _ => panic!("Can't load from address in AF!")
+        };
+        let value = self.reg_a;
+        self.write_byte(value, addr);
+        self.last_m = 2;
+        self.last_t = 8;
+    }
+
     fn or(&mut self, reg: Reg8) {
         self.last_m = 1;
         self.last_t = 4;
@@ -980,6 +1100,45 @@ impl Cpu {
             _ => panic!("Can't push SP!")
         };
         self.write_word(value, sp);
+        self.reg_sp = sp;
+        self.last_m = 4;
+        self.last_t = 16;
+    }
+
+    fn ret(&mut self, flag: JF) {
+        let jump = match flag {
+            JF::Always => true,
+            JF::Z => self.flag_zero,
+            JF::C => self.flag_carry,
+            JF::NZ => !self.flag_zero,
+            JF::NC => !self.flag_carry,
+        };
+        if jump {
+            let sp = self.reg_sp;
+            let addr = self.read_word(sp);
+            self.reg_pc = addr;
+            self.reg_sp = sp + 2;
+            match flag {
+                JF::Always => {
+                    self.last_m = 4;
+                    self.last_t = 16;
+                }
+                _ => {
+                    self.last_m = 5;
+                    self.last_t = 20;
+                }
+            }
+        } else {
+            self.last_m = 2;
+            self.last_t = 8;
+        }
+    }
+
+    fn rst(&mut self, addr: u16) {
+        let sp = self.reg_sp - 2;
+        let pc = self.reg_pc;
+        self.write_word(pc, sp);
+        self.reg_pc = addr;
         self.reg_sp = sp;
         self.last_m = 4;
         self.last_t = 16;
@@ -1144,4 +1303,18 @@ enum Reg16 {
     DE,
     HL,
     SP,
+}
+
+enum JF { // Jump flags
+    Always,
+    Z,
+    C,
+    NZ,
+    NC
+}
+
+enum ID { // Inc/Dec HL
+    None,
+    Inc,
+    Dec
 }
