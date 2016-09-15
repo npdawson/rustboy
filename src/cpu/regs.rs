@@ -21,7 +21,7 @@ impl Regs {
         self.flags.zero = result == 0x00;
         self.flags.sub = false;
         self.flags.half = (old_a & 0x0F + value & 0x0F) & 0x10 == 0x10;
-        self.flag_carry = (old_a as u16) + (value as u16) > 255;
+        self.flags.carry = (old_a as u16) + (value as u16) > 255;
     }
 
     pub fn add_HL(&mut self, reg: Reg16) {
@@ -29,21 +29,21 @@ impl Regs {
         let value = self.read16(reg);
         let result = old.wrapping_add(value);
         self.write16(result, Reg16::HL);
-        self.flag_sub = false;
-        self.flag_half =
-            (old & 0x0F00).wrapping_add(other_reg & 0x0F00) & 0x1000 == 0x1000;
-        self.flag_carry = (old as u32) + (other_reg as u32) >= 0x10000;
+        self.flags.sub = false;
+        self.flags.half =
+            (old & 0x0F00).wrapping_add(value & 0x0F00) & 0x1000 == 0x1000;
+        self.flags.carry = (old as u32) + (value as u32) >= 0x10000;
     }
 
     pub fn addi(&mut self, value: u8, carry: bool) {
         let old_a = self.read(Reg8::A);
         let result = if carry && self.flags.carry {
-            old_a.wrapping_add(value).wrapping_add(1);
-            self.flag_carry = (old_a as u16) + (value as u16) + 1 > 255
+            self.flags.carry = (old_a as u16) + (value as u16) + 1 > 255;
+            old_a.wrapping_add(value).wrapping_add(1)
         } else {
-            old_a.wrapping_add(value);
-            self.flag_carry = (old_a as u16) + (value as u16) > 255;
-        }
+            self.flags.carry = (old_a as u16) + (value as u16) > 255;
+            old_a.wrapping_add(value)
+        };
         self.write(result, Reg8::A);
         self.flags.zero = result == 0x00;
         self.flags.sub = false;
@@ -55,17 +55,17 @@ impl Regs {
         if self.flags.carry {
             let old = self.read(Reg8::A);
             self.write(old.wrapping_add(1), Reg8::A);
-            self.flag_zero = old == 0xFF;
-            self.flag_sub = false;
-            self.flag_half = (old & 0x0F + 1) & 0x10 == 0x10;
-            self.flag_carry = (old as u16) + 1 > 255;
+            self.flags.zero = old == 0xFF;
+            self.flags.sub = false;
+            self.flags.half = (old & 0x0F + 1) & 0x10 == 0x10;
+            self.flags.carry = (old as u16) + 1 > 255;
         }
     }
 
     pub fn and(&mut self, reg: Reg8) {
-        let value = self.read(Reg::A) & self.read(reg);
-        self.write(value, Reg::A);
-        self.flags.zero = result == 0x00;
+        let value = self.read(Reg8::A) & self.read(reg);
+        self.write(value, Reg8::A);
+        self.flags.zero = value == 0x00;
         self.flags.sub = false;
         self.flags.half = true;
         self.flags.carry = false;
@@ -87,15 +87,15 @@ impl Regs {
     pub fn read16(&mut self, reg: Reg16) -> u16 {
         match reg {
             Reg16::BC =>
-                (self.read(Reg8::B) as u16) << 8 | self.read(Reg8::C) as u16
+                (self.read(Reg8::B) as u16) << 8 | self.read(Reg8::C) as u16,
             Reg16::DE =>
-                (self.read(Reg8::D) as u16) << 8 | self.read(Reg8::E) as u16
+                (self.read(Reg8::D) as u16) << 8 | self.read(Reg8::E) as u16,
             Reg16::HL =>
-                (self.read(Reg8::H) as u16) << 8 | self.read(Reg8::L) as u16
+                (self.read(Reg8::H) as u16) << 8 | self.read(Reg8::L) as u16,
             Reg16::SP => self.sp,
             Reg16::PC => self.pc,
             Reg16::AF =>
-                (self.read(Reg8::A) as u16) << 8 | self.flags.into() as u16
+                (self.read(Reg8::A) as u16) << 8 | self.flags.into() as u16,
         }
     }
 
@@ -138,6 +138,7 @@ impl Regs {
     }
 }
 
+#[derive(Default)]
 struct Flags {
     zero:  bool,
     sub:   bool,
@@ -147,10 +148,23 @@ struct Flags {
 
 impl From<u8> for Flags {
     fn from(value: u8) -> Self {
-        self.zero  = value & (1 << 7) != 0;
-        self.sub   = value & (1 << 6) != 0;
-        self.half  = value & (1 << 5) != 0;
-        self.carry = value & (1 << 4) != 0;
+        Flags {
+            zero:  value & (1 << 7) != 0,
+            sub:   value & (1 << 6) != 0,
+            half:  value & (1 << 5) != 0,
+            carry: value & (1 << 4) != 0,
+        }
+    }
+}
+
+impl Flags {
+    fn into(self) -> u8 {
+        let mut result = 0;
+        if self.zero  { result |= 1 << 7; }
+        if self.sub   { result |= 1 << 6; }
+        if self.half  { result |= 1 << 5; }
+        if self.carry { result |= 1 << 4; }
+        result
     }
 }
 
