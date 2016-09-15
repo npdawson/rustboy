@@ -123,7 +123,8 @@ impl Mmu {
 
     pub fn write_byte(&mut self, value: u8, addr: usize) {
         match addr {
-            ROM_START ... ROM_END => println!("Tried writing to ROM!"),
+            ROM_START ... ROM_END => println!("Tried writing {:#X} to ROM addr {:#X}!"
+                                              , value, addr),
             VRAM_START ... VRAM_END => self.vram[addr - VRAM_START] = value,
             XRAM_START ... XRAM_END => self.xram[addr - XRAM_START] = value,
             WRAM_START ... WRAM_END => self.ram[addr - WRAM_START] = value,
