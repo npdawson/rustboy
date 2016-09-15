@@ -239,6 +239,24 @@ impl Cpu {
                 self.last_m = 1;
                 self.last_t = 4;
             }
+            0x56 => {
+                // TODO LD D, (HL)
+                println!("LD D, (HL)");
+                let addr = (self.reg_h as u16) << 8 | self.reg_l as u16;
+                let value = self.read_byte(addr);
+                self.reg_d = value;
+                self.last_m = 2;
+                self.last_t = 8;
+            }
+            0x5E => {
+                // TODO LD E, (HL)
+                println!("LD E, (HL)");
+                let addr = (self.reg_h as u16) << 8 | self.reg_l as u16;
+                let value = self.read_byte(addr);
+                self.reg_e = value;
+                self.last_m = 2;
+                self.last_t = 8;
+            }
             0x5F => {
                 // TODO LD E, A
                 println!("LD E, A");
@@ -332,6 +350,7 @@ impl Cpu {
             0xBE => self.cp(Reg8::AtHL),
             0xBF => self.cp(Reg8::A),
 
+            0xC1 => self.pop(Reg16::BC),
             0xC3 => {
                 // TODO JP a16
                 let old_pc = self.reg_pc;
@@ -340,7 +359,7 @@ impl Cpu {
                 self.last_t = 16;
                 println!("JP {:#X}", self.reg_pc);
             }
-
+            0xC5 => self.push(Reg16::BC),
             0xC6 => self.addi(false),
             0xC9 => {
                 // TODO RET
@@ -385,6 +404,8 @@ impl Cpu {
                 self.last_t = 24;
             }
             0xCE => self.addi(true),
+            0xD1 => self.pop(Reg16::DE),
+            0xD5 => self.push(Reg16::DE),
             0xEA => {
                 // TODO LD (a16),A
                 let addr = self.read_word(pc + 1);
@@ -406,17 +427,7 @@ impl Cpu {
                 self.last_t = 12;
                 println!("LDH ({:#X}),A", addr);
             }
-            0xE1 => {
-                // TODO POP HL
-                println!("POP HL");
-                let sp = self.reg_sp;
-                let hl = self.read_word(sp);
-                self.reg_h = (hl >> 8) as u8;
-                self.reg_l = (hl & 0xFF) as u8;
-                self.reg_sp += 2;
-                self.last_m = 3;
-                self.last_t = 12;
-            }
+            0xE1 => self.pop(Reg16::HL),
             0xE2 => {
                 // TODO LD (C),A
                 println!("LD (0xFF00 + C), A");
@@ -426,8 +437,16 @@ impl Cpu {
                 self.last_m = 2;
                 self.last_t = 8;
             }
+            0xE5 => self.push(Reg16::HL),
             0xE6 => self.andi(),
-
+            0xE9 => {
+                // TODO JP (HL)
+                println!("JP (HL)");
+                let addr = (self.reg_h as u16) << 8 | self.reg_l as u16;
+                self.reg_pc = addr;
+                self.last_m = 1;
+                self.last_t = 4;
+            }
             0xEF => {
                 // TODO RST 28H
                 println!("RST 28H");
@@ -449,7 +468,7 @@ impl Cpu {
                 self.last_t = 12;
                 println!("LDH A,({:#X})", addr);
             }
-
+            0xF1 => self.pop(Reg16::AF),
             0xF3 => {
                 // TODO Disable Interrupts
                 self.ime = false;
@@ -457,6 +476,7 @@ impl Cpu {
                 self.last_t = 4;
                 println!("DI");
             }
+            0xF5 => self.push(Reg16::AF),
             0xFB => {
                 // TODO Enable Interrupts
                 println!("EI");
@@ -543,12 +563,14 @@ impl Cpu {
             Reg16::DE => (self.reg_d as u16) << 8 | self.reg_e as u16,
             Reg16::HL => old,
             Reg16::SP => self.reg_sp,
+            _ => panic!("Can't add AF to HL!")
         };
         let value = old.wrapping_add(other_reg);
         self.reg_h = (value >> 8) as u8;
         self.reg_l = (value & 0xFF) as u8;
         self.flag_sub = false;
-        self.flag_half = (old & 0x0F00 + other_reg & 0x0F00) & 0x1000 == 0x1000;
+        self.flag_half =
+            (old & 0x0F00).wrapping_add(other_reg & 0x0F00) & 0x1000 == 0x1000;
         self.flag_carry = (old as u32) + (other_reg as u32) >= 0x10000;
         self.last_m = 2;
         self.last_t = 8;
@@ -794,6 +816,7 @@ impl Cpu {
             Reg16::SP => {
                 self.reg_sp = self.reg_sp.wrapping_sub(1);
             },
+            _ => panic!("Can't decrement AF!")
         }
         self.last_m = 2;
         self.last_t = 8;
@@ -878,6 +901,7 @@ impl Cpu {
             Reg16::SP => {
                 self.reg_sp = self.reg_sp.wrapping_add(1);
             },
+            _ => panic!("Can't increment AF!")
         }
         self.last_m = 2;
         self.last_t = 8;
@@ -905,6 +929,60 @@ impl Cpu {
         self.flag_sub = false;
         self.flag_half = false;
         self.flag_carry = false;
+    }
+
+    fn pop(&mut self, reg: Reg16) {
+        println!("POP");
+        let sp = self.reg_sp;
+        let value = self.read_word(sp);
+        match reg {
+            Reg16::BC => {
+                self.reg_b = (value >> 8) as u8;
+                self.reg_c = (value & 0xFF) as u8;
+            }
+            Reg16::DE => {
+                self.reg_d = (value >> 8) as u8;
+                self.reg_e = (value & 0xFF) as u8;
+            }
+            Reg16::HL => {
+                self.reg_h = (value >> 8) as u8;
+                self.reg_l = (value & 0xFF) as u8;
+            }
+            Reg16::AF => {
+                self.reg_a = (value >> 8) as u8;
+                self.flag_zero  = (value >> 4) & 0b1000 == 0x1000;
+                self.flag_sub   = (value >> 4) & 0b0100 == 0x0100;
+                self.flag_half  = (value >> 4) & 0b0010 == 0x0010;
+                self.flag_carry = (value >> 4) & 0b0001 == 0x0001;
+            }
+            _ => panic!("No POP SP!")
+        }
+        self.reg_sp += 2;
+        self.last_m = 3;
+        self.last_t = 12;
+    }
+
+    fn push(&mut self, reg: Reg16) {
+        println!("PUSH");
+        let sp = self.reg_sp - 2;
+        let value = match reg {
+            Reg16::BC => (self.reg_b as u16) << 8 | self.reg_c as u16,
+            Reg16::DE => (self.reg_d as u16) << 8 | self.reg_c as u16,
+            Reg16::HL => (self.reg_h as u16) << 8 | self.reg_c as u16,
+            Reg16::AF => {
+                let mut v = (self.reg_a as u16) << 8;
+                if self.flag_zero  { v |= 0x80; }
+                if self.flag_sub   { v |= 0x40; }
+                if self.flag_half  { v |= 0x20; }
+                if self.flag_carry { v |= 0x10; }
+                v
+            }
+            _ => panic!("Can't push SP!")
+        };
+        self.write_word(value, sp);
+        self.reg_sp = sp;
+        self.last_m = 4;
+        self.last_t = 16;
     }
 
     fn sbc(&mut self, reg: Reg8) {
@@ -1061,6 +1139,7 @@ enum Reg8 {
 }
 
 enum Reg16 {
+    AF,
     BC,
     DE,
     HL,
