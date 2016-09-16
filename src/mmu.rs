@@ -1,5 +1,6 @@
 use std::fmt;
 use super::byteorder::{ByteOrder, LittleEndian};
+use gpu;
 
 const RAM_SIZE: usize = 0x2000;
 const ROM_BANK_SIZE: usize = 0x4000;
@@ -25,6 +26,8 @@ const HRAM_SIZE: usize = HRAM_END - HRAM_START;
 const IEREG: usize = 0xFFFF;
 
 pub struct Mmu {
+    in_bootrom: bool,
+    bootrom: Vec<u8>,
     // switchable banks needs to be implemented
     rom: Vec<u8>,
     //rom0: Box<[u8; ROM_BANK_SIZE]>,
@@ -36,11 +39,14 @@ pub struct Mmu {
     io_regs: Vec<u8>,
     oam: Vec<u8>,
     ie_reg: u8, // Interrupts Enable Register
+    gpu: gpu::Gpu,
 }
 
 impl Mmu {
-    pub fn new(rom: Vec<u8>) -> Mmu {
+    pub fn new(boot: Vec<u8>, rom: Vec<u8>) -> Mmu {
         Mmu {
+            in_bootrom: true,
+            bootrom: boot,
             rom: rom,
             ram: vec![0; RAM_SIZE],
             vram: vec![0; RAM_SIZE],
@@ -55,7 +61,7 @@ impl Mmu {
                           0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                           0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //0xFF30
                           0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                          0x91, 0x00, 0x00, 0x00, 0x94, 0x00, 0x00, 0xFC, //0xFF40
+                          0x91, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFC, //0xFF40
                           0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                           0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //0xFF50
                           0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -63,13 +69,18 @@ impl Mmu {
                           0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                           0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //0xFF70
                           0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
-            ie_reg: 0x00
+            ie_reg: 0x00,
+            gpu: gpu::Gpu::new()
         }
     }
 
     pub fn read_byte(&self, addr: usize) -> u8 {
         if addr <= ROM_END {
-            self.rom[addr]
+            if self.in_bootrom && addr < 0x100 {
+                self.bootrom[addr]
+            } else {
+                self.rom[addr]
+            }
         } else if addr <= VRAM_END {
             self.vram[addr - VRAM_START]
         } else if addr <= XRAM_END {
@@ -86,7 +97,7 @@ impl Mmu {
             //TODO
             panic!("Unused address space: {:#X}", addr);
         } else if addr <= IOREG_END {
-            self.io_regs[addr - IOREG_START]
+            self.read_ioreg(addr)
         } else if addr <= HRAM_END  {
             self.hram[addr - HRAM_START]
         } else {
@@ -96,7 +107,11 @@ impl Mmu {
 
     pub fn read_word(&self, addr: usize) -> u16 {
         if addr <= ROM_END {
-            LittleEndian::read_u16(&self.rom[addr..])
+            if self.in_bootrom && addr < 0x100 {
+                LittleEndian::read_u16(&self.bootrom[addr..])
+            } else {
+                LittleEndian::read_u16(&self.rom[addr..])
+            }
         } else if addr <= VRAM_END {
             LittleEndian::read_u16(&self.vram[addr - VRAM_START..])
         } else if addr <= XRAM_END {
@@ -113,7 +128,8 @@ impl Mmu {
             //TODO
             panic!("Unused address space: {:#X}", addr);
         } else if addr <= IOREG_END {
-            LittleEndian::read_u16(&self.io_regs[addr - IOREG_START..])
+            let value = self.read_ioreg16(addr);
+            value
         } else if addr <= HRAM_END  {
             LittleEndian::read_u16(&self.hram[addr - HRAM_START..])
         } else {
@@ -130,10 +146,11 @@ impl Mmu {
             WRAM_START ... WRAM_END => self.ram[addr - WRAM_START] = value,
             ECHO_START ... ECHO_END => self.ram[addr - ECHO_START] = value,
             OAM_START ... OAM_END => self.oam[addr - OAM_START] = value,
-            IOREG_START ... IOREG_END => self.io_regs[addr - IOREG_START] = value,
+            IOREG_START ... IOREG_END => self.write_ioreg(value, addr),
             HRAM_START ... HRAM_END => self.hram[addr - HRAM_START] = value,
             IEREG => self.ie_reg = value,
-            _ => println!("Failed writing {:#X} to addr {:#X}", value, addr)
+            OAM_END ... 0xFEFF => println!("Why you writing to FEFF, Tetris?"),
+            _ => panic!("Failed writing {:#X} to addr {:#X}", value, addr)
         }
     }
 
@@ -156,14 +173,44 @@ impl Mmu {
                 LittleEndian::write_u16(&mut self.oam[addr - OAM_START..], value);
             }
             IOREG_START ... IOREG_END => {
-                LittleEndian::write_u16(&mut self.io_regs[addr - IOREG_START..], value);
+                self.write_ioreg16(value, addr);
             }
             HRAM_START ... HRAM_END => {
                 LittleEndian::write_u16(&mut self.hram[addr - HRAM_START..], value);
             }
             IEREG => panic!("Tried to write 16 bits to 8 bit IEREG!"),
-            _ => println!("Failed writing {:#X} to addr {:#X}", value, addr)
+            _ => panic!("Failed writing {:#X} to addr {:#X}", value, addr)
         }
+    }
+
+    pub fn step_gpu(&mut self, last_t: usize) {
+        self.gpu.step(last_t);
+    }
+
+    fn read_ioreg(&self, addr: usize) -> u8 {
+        if addr & 0xF0 >= 0x40 { // GPU
+            self.gpu.read_byte(addr)
+        } else {
+            self.io_regs[addr - IOREG_START]
+        }
+    }
+
+    fn read_ioreg16(&self, addr: usize) -> u16 {
+        panic!("Reading a word from IORegs not yet supported!")
+    }
+
+    fn write_ioreg(&mut self, value: u8, addr: usize) {
+        if addr == 0xFF50 {
+            self.in_bootrom = false;
+        } else if addr & 0xF0 >= 0x40 { // GPU
+            self.gpu.write_byte(value, addr);
+        } else {
+            self.io_regs[addr - IOREG_START] = value;
+        }
+    }
+
+    fn write_ioreg16(&mut self, value: u16, addr: usize) {
+        panic!("Writing a word to IORegs not yet supported!")
     }
 }
 
