@@ -1,7 +1,7 @@
-#[derive(Default)]
+#[derive(Debug)]
 pub struct Regs {
-    pc: u16,
-    sp: u16,
+    pub pc: u16,
+    pub sp: u16,
     a: u8,
     b: u8,
     c: u8,
@@ -10,6 +10,23 @@ pub struct Regs {
     h: u8,
     l: u8,
     flags: Flags
+}
+
+impl Default for Regs {
+    fn default() -> Self {
+        Regs {
+            pc: 0x0000,
+            sp: 0xFFFE,
+            a: 0x01,
+            b: 0x00,
+            c: 0x13,
+            d: 0x00,
+            e: 0xD8,
+            h: 0x01,
+            l: 0x4D,
+            flags: Flags::default(),
+        }
+    }
 }
 
 impl Regs {
@@ -24,7 +41,7 @@ impl Regs {
         self.flags.carry = (old_a as u16) + (value as u16) > 255;
     }
 
-    pub fn add_HL(&mut self, reg: Reg16) {
+    pub fn add_to_HL(&mut self, reg: Reg16) {
         let old = self.read16(Reg16::HL);
         let value = self.read16(reg);
         let result = old.wrapping_add(value);
@@ -33,6 +50,16 @@ impl Regs {
         self.flags.half =
             (old & 0x0F00).wrapping_add(value & 0x0F00) & 0x1000 == 0x1000;
         self.flags.carry = (old as u32) + (value as u32) >= 0x10000;
+    }
+
+    pub fn add_HL(&mut self, value: u8) {
+        let old = self.a;
+        let result = old.wrapping_add(value);
+        self.write(result, Reg8::A);
+        self.flags.zero = result == 0x00;
+        self.flags.sub = false;
+        self.flags.half = (old & 0x0F + value & 0x0F) & 0x10 == 0x10;
+        self.flags.carry = (old as u16) + (value as u16) > 255;
     }
 
     pub fn addi(&mut self, value: u8, carry: bool) {
@@ -71,6 +98,113 @@ impl Regs {
         self.flags.carry = false;
     }
 
+    pub fn andi(&mut self, imm: u8) {
+        let old = self.a;
+        let result = old & imm;
+        self.write(result, Reg8::A);
+        self.flags.zero = result == 0x00;
+        self.flags.sub = false;
+        self.flags.half = true;
+        self.flags.carry = false;
+    }
+
+    pub fn bit(&mut self, bit: u8, reg: Reg8) {
+        let value = self.read(reg);
+        let result = value & (1 << bit) != 0;
+        self.flags.zero = !result;
+        self.flags.sub = false;
+        self.flags.half = true;
+    }
+
+    pub fn cp(&mut self, reg: Reg8) {
+        let old = self.a;
+        let value = self.read(reg);
+        let result = old.wrapping_sub(value);
+        self.flags.zero = result == 0x00;
+        self.flags.sub = true;
+        self.flags.half = old & 0x0F < value & 0x0F;
+        self.flags.carry = old < value;
+    }
+
+    pub fn cp_HL(&mut self, value: u8) {
+        let old = self.a;
+        let result = old.wrapping_sub(value);
+        self.flags.zero = result == 0x00;
+        self.flags.sub = true;
+        self.flags.half = old & 0x0F < value & 0x0F;
+        self.flags.carry = old < value;
+    }
+
+    pub fn cpi(&mut self, imm: u8) {
+        let old = self.a;
+        let result = old.wrapping_sub(imm);
+        self.flags.zero = result == 0x00;
+        self.flags.sub = true;
+        self.flags.half = old & 0x0F < imm;
+        self.flags.carry = old < imm;
+    }
+
+    pub fn cpl(&mut self) {
+        let old = self.a;
+        self.write(old ^ 0xFF, Reg8::A);
+        self.flags.sub = true;
+        self.flags.half = true;
+    }
+
+    pub fn dec(&mut self, reg: Reg8) {
+        let old = self.read(reg);
+        let value = old.wrapping_sub(1);
+        self.write(value, reg);
+        self.flags.zero = value == 0x00;
+        self.flags.sub = true;
+        self.flags.half = old & 0x0F < 0x01;
+    }
+
+    pub fn dec16(&mut self, reg: Reg16) {
+        let old = self.read16(reg);
+        let value = old.wrapping_sub(1);
+        self.write16(value, reg);
+    }
+
+    pub fn inc(&mut self, reg: Reg8) {
+        let old = self.read(reg);
+        let value = old.wrapping_add(1);
+        self.write(value, reg);
+        self.flags.zero = value == 0x00;
+        self.flags.sub = false;
+        self.flags.half = old & 0x0F + 1 == 0x10;
+    }
+
+    pub fn inc16(&mut self, reg: Reg16) {
+        let old = self.read16(reg);
+        let value = old.wrapping_add(1);
+        self.write16(value, reg);
+    }
+
+    pub fn jump_match(&self, flag: JF) -> bool {
+        match flag {
+            JF::Always => true,
+            JF::Z => self.flags.zero,
+            JF::C => self.flags.carry,
+            JF::NZ => !self.flags.zero,
+            JF::NC => !self.flags.carry,
+        }
+    }
+
+    pub fn ld(&mut self, rd: Reg8, rs: Reg8) {
+        let value = self.read(rs);
+        self.write(value, rd);
+    }
+
+    pub fn or(&mut self, reg: Reg8) {
+        let value = self.read(Reg8::A) & self.read(reg);
+        self.write(value, Reg8::A);
+        self.flags.zero = value == 0x00;
+        self.flags.sub = false;
+        self.flags.half = false;
+        self.flags.carry = false;
+    }
+
     pub fn read(&mut self, reg: Reg8) -> u8 {
         match reg {
             Reg8::A => self.a,
@@ -78,7 +212,7 @@ impl Regs {
             Reg8::C => self.c,
             Reg8::D => self.d,
             Reg8::E => self.e,
-            Reg8::F => self.flags.into(),
+            Reg8::F => self.flags.clone().into(),
             Reg8::H => self.h,
             Reg8::L => self.l,
         }
@@ -95,8 +229,77 @@ impl Regs {
             Reg16::SP => self.sp,
             Reg16::PC => self.pc,
             Reg16::AF =>
-                (self.read(Reg8::A) as u16) << 8 | self.flags.into() as u16,
+                (self.read(Reg8::A) as u16) << 8 | self.flags.clone().into() as u16,
         }
+    }
+
+    pub fn res(&mut self, bit: u8, reg: Reg8) {
+        let old = self.read(reg);
+        let result = old & !(1 << bit);
+        self.write(result, reg);
+    }
+
+    pub fn rl(&mut self, reg: Reg8) {
+        let carrybit = self.flags.carry;
+        let value = self.read(reg);
+        let result = value << 1 | (if carrybit { 0b1 } else { 0b0 });
+        self.write(result, reg);
+        self.flags.zero = result == 0;
+        self.flags.sub = false;
+        self.flags.half = false;
+        self.flags.carry = value & (1 << 7) != 0;
+    }
+
+    pub fn rla(&mut self) {
+        self.rl(Reg8::A);
+        self.flags.zero = false;
+    }
+
+    pub fn sub(&mut self, reg: Reg8) {
+        let old = self.read(Reg8::A);
+        let value = self.read(reg);
+        let result = old.wrapping_sub(value);
+        self.write(result, Reg8::A);
+        self.flags.zero = result == 0x00;
+        self.flags.sub = true;
+        self.flags.half = old & 0x0F < value & 0x0F;
+        self.flags.carry = old < value;
+    }
+
+    pub fn sub_HL(&mut self, value: u8) {
+        let old = self.a;
+        let result = old.wrapping_sub(value);
+        self.write(result, Reg8::A);
+        self.flags.zero = result == 0x00;
+        self.flags.sub = true;
+        self.flags.half = old & 0x0F < value & 0x0F;
+        self.flags.carry = old < value;
+    }
+
+    pub fn sbc(&mut self, reg: Reg8) {
+        self.sub(reg);
+        if self.flags.carry {
+            let old = self.read(Reg8::A);
+            let result = old.wrapping_sub(1);
+            self.write(result, Reg8::A);
+            self.flags.zero = result == 0x00;
+            self.flags.sub = true;
+            self.flags.half = old & 0x0F < 1;
+            self.flags.carry = old < 1;
+        }
+    }
+
+
+    pub fn swap(&mut self, reg: Reg8) {
+        let old = self.read(reg);
+        let lo = old & 0x0F;
+        let hi = old & 0xF0;
+        let result = lo << 4 | hi >> 4;
+        self.write(result, reg);
+        self.flags.zero = result == 0x00;
+        self.flags.sub = false;
+        self.flags.half = false;
+        self.flags.carry = false;
     }
 
     pub fn write(&mut self, value: u8, reg: Reg8) {
@@ -136,9 +339,20 @@ impl Regs {
             }
         }
     }
+
+    pub fn xor(&mut self, reg: Reg8) {
+        let old = self.read(Reg8::A);
+        let value = self.read(reg);
+        let result = old ^ value;
+        self.write(value, Reg8::A);
+        self.flags.zero = result == 0;
+        self.flags.sub = false;
+        self.flags.half = false;
+        self.flags.carry = false;
+    }
 }
 
-#[derive(Default)]
+#[derive(Debug, Default, Copy, Clone)]
 struct Flags {
     zero:  bool,
     sub:   bool,
@@ -168,6 +382,8 @@ impl Flags {
     }
 }
 
+
+#[derive(Copy, Clone)]
 pub enum Reg8 {
     A,
     B,
@@ -180,6 +396,7 @@ pub enum Reg8 {
 //    AtHL,
 }
 
+#[derive(Copy, Clone)]
 pub enum Reg16 {
     AF,
     BC,
@@ -189,6 +406,7 @@ pub enum Reg16 {
     PC,
 }
 
+#[derive(Copy, Clone)]
 pub enum JF { // Jump flags
     Always,
     Z,
