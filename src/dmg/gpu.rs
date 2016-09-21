@@ -1,12 +1,16 @@
 const FB_SIZE: usize = 160*144;
+const VRAM_START: usize = 0x8000;
 const WHITE: [u8; 4] = [255, 255, 255, 255];
 const LGRAY: [u8; 4] = [192, 192, 192, 255];
 const DGRAY: [u8; 4] = [ 96,  96,  96, 255];
 const BLACK: [u8; 4] = [  0,   0,   0, 255];
 
 use minifb::Window;
+use byteorder::{ByteOrder, LittleEndian};
 
 pub struct Gpu {
+    vram: Vec<u8>,
+
     fb: Vec<u32>,
     mode: Mode,
     modeclock: usize,
@@ -37,7 +41,9 @@ pub struct Gpu {
 impl Gpu {
     pub fn new() -> Gpu {
         Gpu {
-            fb: vec![0; FB_SIZE],
+            vram: vec![0; 0x2000],
+
+            fb: vec![0xFF; FB_SIZE], // initialize to white screen
             mode: Mode::Oam,
             modeclock: 0,
             line: 0,
@@ -135,6 +141,22 @@ impl Gpu {
         }
     }
 
+    pub fn read_vram(&self, addr: usize) -> u8 {
+        self.vram[addr - VRAM_START]
+    }
+
+    pub fn read_vram16(&self, addr: usize) -> u16 {
+        LittleEndian::read_u16(&self.vram[addr - VRAM_START..])
+    }
+
+    pub fn write_vram(&mut self, value: u8, addr: usize) {
+        self.vram[addr - VRAM_START] = value;
+    }
+
+    pub fn write_vram16(&mut self, value: u16, addr: usize) {
+        LittleEndian::write_u16(&mut self.vram[addr - VRAM_START..], value);
+    }
+
     fn set_lcd_ctrl(&mut self, value: u8) {
         self.switchbg  = value & (1 << 0) != 0;
         self.bgmap     = value & (1 << 3) != 0;
@@ -171,7 +193,44 @@ impl Gpu {
         self.mode0hblank_int = value & (1 << 3) != 0;
     }
 
-    fn renderscan(&mut self) {}
+    fn renderscan(&mut self) {
+        // VRAM offset for map
+        let mut map_offset: usize = if self.bgmap { 0x1C00 } else { 0x1800 };
+        // which line of tiles to use in the map
+        map_offset += (((self.line as usize) + (self.scy as usize)) & 0xFF) >> 3;
+        // which tile to start with in the map line
+        let mut line_offset: usize = (self.scx as usize) >> 3;
+        // which line of pixels to use in the tiles
+        let y = (self.line + self.scy) & 0b111;
+        // where in the tile line to start
+        let mut x = self.scx & 0b111;
+        // where to render in the buffer
+        let mut fb_offset = (self.line as usize) * 160;
+        // read tile index from bgmap
+        // let color;
+        let mut tile = self.vram[map_offset + line_offset] as usize;
+        // if tile data set in use is #1,
+        // indices are signed; calculate real offset
+        if self.bgtile && tile < 128 { tile += 256 }
+
+        for i in 0..160 {
+            // remap the tile pixel through the palette
+            //color = self.pal[self.tileset[tile][y][x]];
+
+            // plot the pixel to the buffer
+            self.fb[fb_offset] = 0;//color;
+            fb_offset += 1;
+
+            // when this tile ends, read another
+            x += 1;
+            if x == 8 {
+                x = 0;
+                line_offset = (line_offset + 1) & 0x1F;
+                tile = self.vram[map_offset + line_offset] as usize;
+                if self.bgtile && tile < 128 { tile += 256 };
+            }
+        }
+    }
 }
 
 fn set_palette(pal: &mut Vec<Vec<u8>>, value: u8) {
