@@ -1,4 +1,4 @@
-use mmu;
+use dmg::mmu::Mmu;
 use self::regs::{Regs,Reg8,Reg16,JF,ID};
 
 mod regs;
@@ -12,11 +12,11 @@ pub struct Cpu {
     last_t: usize,
     // clock time total
     clock_t: usize,
-    mmu: mmu::Mmu,
+    mmu: Mmu,
 }
 
 impl Cpu {
-    pub fn new(boot: Vec<u8>, rom: Vec<u8>) -> Cpu {
+    pub fn new(boot: Vec<u8>) -> Cpu {
         Cpu {
             regs: Regs::default(),
             // Interrupt Master Enable
@@ -25,7 +25,7 @@ impl Cpu {
             last_t: 0,
             // clock time total
             clock_t: 0,
-            mmu: mmu::Mmu::new(boot, rom),
+            mmu: Mmu::new(boot),
         }
     }
 
@@ -299,6 +299,14 @@ impl Cpu {
         self.regs.sub(reg);
     }
 
+    fn subi(&mut self) {
+        self.last_t = 8;
+        let pc = self.regs.pc;
+        let imm = self.read_byte(pc);
+        self.regs.pc += 1;
+        self.regs.subi(imm);
+    }
+
     fn sub_HL(&mut self) {
         self.last_t = 8;
         let addr = self.regs.read16(Reg16::HL);
@@ -314,6 +322,13 @@ impl Cpu {
     fn xor(&mut self, reg: Reg8) {
         self.last_t = 4;
         self.regs.xor(reg);
+    }
+
+    fn xor_HL(&mut self) {
+        self.last_t = 8;
+        let addr = self.regs.read16(Reg16::HL);
+        let value = self.read_byte(addr);
+        self.regs.xor_HL(value);
     }
 
     fn read_byte(&mut self, addr: u16) -> u8 {
@@ -535,7 +550,7 @@ impl Cpu {
             0xAB => self.xor(Reg8::E),
             0xAC => self.xor(Reg8::H),
             0xAD => self.xor(Reg8::L),
-            // 0xAE => self.xor(Reg8::AtHL),
+            0xAE => self.xor_HL(),
             0xAF => self.xor(Reg8::A),
 
             0xB0 => self.or(Reg8::B),
@@ -560,6 +575,21 @@ impl Cpu {
             0xC1 => self.pop(Reg16::BC),
             0xC2 => self.jp(JF::NZ),
             0xC3 => self.jp(JF::Always),
+            0xC4 => {
+                // TODO CALL NZ, a16
+                if self.regs.jump_match(JF::NZ) {
+                    let pc = self.regs.pc;
+                    let addr = self.read_word(pc);
+                    self.regs.sp -= 2;
+                    let sp = self.regs.sp;
+                    self.write_word(pc + 2, sp);
+                    self.regs.pc = addr;
+                    self.last_t = 24;
+                } else {
+                    self.regs.pc += 2;
+                    self.last_t = 12;
+                }
+            },
             0xC5 => self.push(Reg16::BC),
             0xC6 => self.addi(false),
             0xC7 => self.rst(0x00),
@@ -607,6 +637,7 @@ impl Cpu {
             0xD1 => self.pop(Reg16::DE),
             0xD2 => self.jp(JF::NC),
             0xD5 => self.push(Reg16::DE),
+            0xD6 => self.subi(),
             0xD7 => self.rst(0x10),
 
             0xD8 => self.ret(JF::C),

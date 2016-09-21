@@ -15,7 +15,7 @@ pub struct Regs {
 impl Default for Regs {
     fn default() -> Self {
         Regs {
-            pc: 0x0000,
+            pc: 0x0100,
             sp: 0xFFFE,
             a: 0x01,
             b: 0x00,
@@ -266,6 +266,16 @@ impl Regs {
         self.flags.carry = old < value;
     }
 
+    pub fn subi(&mut self, imm: u8) {
+        let old = self.read(Reg8::A);
+        let result = old.wrapping_sub(imm);
+        self.write(result, Reg8::A);
+        self.flags.zero = result == 0x00;
+        self.flags.sub = true;
+        self.flags.half = old & 0x0F < imm & 0x0F;
+        self.flags.carry = old < imm;
+    }
+
     pub fn sub_HL(&mut self, value: u8) {
         let old = self.a;
         let result = old.wrapping_sub(value);
@@ -346,6 +356,16 @@ impl Regs {
         let result = old ^ value;
         self.write(value, Reg8::A);
         self.flags.zero = result == 0;
+        self.flags.sub = false;
+        self.flags.half = false;
+        self.flags.carry = false;
+    }
+
+    pub fn xor_HL(&mut self, value: u8) {
+        let old = self.a;
+        let result = old ^ value;
+        self.write(result, Reg8::A);
+        self.flags.zero = result == 0x00;
         self.flags.sub = false;
         self.flags.half = false;
         self.flags.carry = false;

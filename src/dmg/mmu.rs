@@ -1,6 +1,6 @@
 use std::fmt;
-use super::byteorder::{ByteOrder, LittleEndian};
-use gpu;
+use byteorder::{ByteOrder, LittleEndian};
+use dmg::gpu::Gpu;
 
 const RAM_SIZE: usize = 0x2000;
 const ROM_BANK_SIZE: usize = 0x4000;
@@ -33,23 +33,23 @@ pub struct Mmu {
     //rom0: Box<[u8; ROM_BANK_SIZE]>,
     //rom1: Box<[u8; ROM_BANK_SIZE]>,
     ram: Vec<u8>,  // working ram, half is a switchable bank CGB only
-    vram: Vec<u8>, // video ram, switchable bank 0/1 CGB only
+    // vram: Vec<u8>, // video ram, switchable bank 0/1 CGB only
     xram: Vec<u8>, // cart ram, switchable bank
     hram: Vec<u8>,      // high ram
     io_regs: Vec<u8>,
     oam: Vec<u8>,
     ie_reg: u8, // Interrupts Enable Register
-    gpu: gpu::Gpu,
+    gpu: Gpu,
 }
 
 impl Mmu {
-    pub fn new(boot: Vec<u8>, rom: Vec<u8>) -> Mmu {
+    pub fn new(boot: Vec<u8>) -> Mmu {
         Mmu {
-            in_bootrom: true,
-            bootrom: boot,
-            rom: rom,
+            in_bootrom: false,
+            bootrom: vec![0; 256],
+            rom: boot,
             ram: vec![0; RAM_SIZE],
-            vram: vec![0; RAM_SIZE],
+            // vram: vec![0; RAM_SIZE],
             xram: vec![0; RAM_SIZE],
             hram: vec![0; 128],
             oam: vec![0; OAM_SIZE],
@@ -70,7 +70,7 @@ impl Mmu {
                           0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //0xFF70
                           0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
             ie_reg: 0x00,
-            gpu: gpu::Gpu::new()
+            gpu: Gpu::new()
         }
     }
 
@@ -82,7 +82,7 @@ impl Mmu {
                 self.rom[addr]
             }
         } else if addr <= VRAM_END {
-            self.vram[addr - VRAM_START]
+            self.gpu.read_vram(addr)
         } else if addr <= XRAM_END {
             self.xram[addr - XRAM_START]
         } else if addr <= ECHO_END {
@@ -113,7 +113,7 @@ impl Mmu {
                 LittleEndian::read_u16(&self.rom[addr..])
             }
         } else if addr <= VRAM_END {
-            LittleEndian::read_u16(&self.vram[addr - VRAM_START..])
+            self.gpu.read_vram16(addr)
         } else if addr <= XRAM_END {
             LittleEndian::read_u16(&self.xram[addr - XRAM_START..])
         } else if addr <= ECHO_END {
@@ -141,7 +141,7 @@ impl Mmu {
         match addr {
             ROM_START ... ROM_END => println!("Tried writing {:#X} to ROM addr {:#X}!"
                                               , value, addr),
-            VRAM_START ... VRAM_END => self.vram[addr - VRAM_START] = value,
+            VRAM_START ... VRAM_END => self.gpu.write_vram(value, addr),
             XRAM_START ... XRAM_END => self.xram[addr - XRAM_START] = value,
             WRAM_START ... WRAM_END => self.ram[addr - WRAM_START] = value,
             ECHO_START ... ECHO_END => self.ram[addr - ECHO_START] = value,
@@ -158,7 +158,7 @@ impl Mmu {
         match addr {
             ROM_START ... ROM_END => println!("Tried writing to ROM!"),
             VRAM_START ... VRAM_END => {
-                LittleEndian::write_u16(&mut self.vram[addr - VRAM_START..], value);
+                self.gpu.write_vram16(value, addr);
             }
             XRAM_START ... XRAM_END => {
                 LittleEndian::write_u16(&mut self.xram[addr - XRAM_START..], value);

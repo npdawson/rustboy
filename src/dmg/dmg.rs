@@ -1,4 +1,4 @@
-use cpu::Cpu;
+use dmg::cpu::Cpu;
 
 #[derive(Debug)]
 pub struct Dmg {
@@ -6,9 +6,9 @@ pub struct Dmg {
 }
 
 impl Dmg {
-    pub fn new(boot: Vec<u8>, rom: Vec<u8>) -> Dmg {
+    pub fn new(boot: Vec<u8>) -> Dmg {
         Dmg {
-            cpu: Cpu::new(boot, rom)
+            cpu: Cpu::new(boot)
         }
     }
 

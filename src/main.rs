@@ -1,10 +1,7 @@
 extern crate byteorder;
 extern crate minifb;
 
-mod cpu;
 mod dmg;
-mod gpu;
-mod mmu;
 
 use std::fs;
 use std::env;
@@ -14,12 +11,12 @@ use minifb::{Window, WindowOptions};
 
 fn main() {
     let boot_file_name = env::args().nth(1).unwrap();
-    let rom_file_name = env::args().nth(2).unwrap();
+    // let rom_file_name = env::args().nth(2).unwrap();
 
     let boot = read_bin(boot_file_name);
-    let rom = read_bin(rom_file_name);
+    // let rom = read_bin(rom_file_name);
 
-    let mut dmg = dmg::Dmg::new(boot, rom);
+    let mut dmg = dmg::Dmg::new(boot);
     let mut window = match Window::new("Test", 160, 144, WindowOptions::default()) {
         Ok(win) => win,
         Err(err) => {
@@ -27,14 +24,10 @@ fn main() {
             return;
         }
     };
-    //dmg.run();
-    // dmg.step();
     while window.is_open() {
         window.update();
-//        println!("Current State: {:#?}", dmg);
         dmg.step();
     }
-    //    println!("{:#?}", &dmg);
 }
 
 fn read_bin<P: AsRef<Path>>(path: P) -> Vec<u8> {
