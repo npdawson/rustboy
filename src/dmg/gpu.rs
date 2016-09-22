@@ -1,20 +1,21 @@
 const FB_SIZE: usize = 160*144;
 const VRAM_START: usize = 0x8000;
+const OAM_START: usize = 0xFE00;
 const WHITE: [u8; 4] = [255, 255, 255, 255];
 const LGRAY: [u8; 4] = [192, 192, 192, 255];
 const DGRAY: [u8; 4] = [ 96,  96,  96, 255];
 const BLACK: [u8; 4] = [  0,   0,   0, 255];
 
-use minifb::Window;
 use byteorder::{ByteOrder, LittleEndian};
 
 pub struct Gpu {
-    vram: Vec<u8>,
+    pub vram: Vec<u8>,
+    pub oam: Vec<u8>,
 
     fb: Vec<u32>,
     mode: Mode,
     modeclock: usize,
-    line: u8, // 160 lines
+    pub line: u8, // 160 lines
     // LCD CTRL, make separate struct?
     switchbg: bool,
     bgmap: bool,
@@ -42,6 +43,7 @@ impl Gpu {
     pub fn new() -> Gpu {
         Gpu {
             vram: vec![0; 0x2000],
+            oam: vec![0; 0xA0],
 
             fb: vec![0xFF; FB_SIZE], // initialize to white screen
             mode: Mode::Oam,
@@ -122,6 +124,8 @@ impl Gpu {
             0xFF47 => panic!("Background Palette is Write-Only!"), // TODO
             0xFF48 => panic!("Object Palette 0 is Write-Only!"), // TODO
             0xFF49 => panic!("Object Palette 1 is Write-Only!"), // TODO
+            0xFF4A => self.wy,
+            0xFF4B => self.wx,
             _ => panic!("Reading from GPU IOReg {:#X} not yet implemented!", addr)
         }
     }
@@ -136,6 +140,8 @@ impl Gpu {
             0xFF47 => set_palette(&mut self.bgp, value), // BG Palette
             0xFF48 => set_palette(&mut self.obp0, value), // Object Palette 0
             0xFF49 => set_palette(&mut self.obp1, value), // Object Palette 0
+            0xFF4A => self.wy = value,
+            0xFF4B => self.wx = value,
             0xFF7F => println!("oopsy! 0xFF7F"),
             _ => panic!("Writing to GPU IOReg {:#X} not yet implemented!", addr)
         }
@@ -155,6 +161,22 @@ impl Gpu {
 
     pub fn write_vram16(&mut self, value: u16, addr: usize) {
         LittleEndian::write_u16(&mut self.vram[addr - VRAM_START..], value);
+    }
+
+    pub fn read_oam(&self, addr: usize) -> u8 {
+        self.oam[addr - OAM_START]
+    }
+
+    pub fn read_oam16(&self, addr: usize) -> u16 {
+        LittleEndian::read_u16(&self.oam[addr - OAM_START..])
+    }
+
+    pub fn write_oam(&mut self, addr: usize, value: u8) {
+        self.oam[addr - OAM_START] = value;
+    }
+
+    pub fn write_oam16(&mut self, addr: usize, value: u16) {
+        LittleEndian::write_u16(&mut self.oam[addr - OAM_START..], value);
     }
 
     fn set_lcd_ctrl(&mut self, value: u8) {
