@@ -1,4 +1,4 @@
-use dmg::mmu::Mmu;
+use dmg::interconnect::Interconnect;
 
 #[derive(Debug)]
 pub struct Cpu {
@@ -45,18 +45,17 @@ impl Cpu {
         }
     }
 
-    pub fn step(&mut self, mmu: &mut Mmu) -> usize {
+    pub fn step(&mut self, interconnect: &mut Interconnect) -> usize {
         if self.halted{
             4 // wait 4 cycles at a time for interrupt
         } else {
             let pc = self.reg_pc;
-            // if pc == 0xFFFF { panic!("wild!"); }
-            let opcode = mmu.read_byte(pc as usize);
+            let opcode = interconnect.read_byte(pc);
             self.reg_pc = pc.saturating_add(1);
 
             println!("PC: {:#x}", pc);
 
-            self.execute_instr(opcode, mmu);
+            self.execute_instr(opcode, interconnect);
 
             let cycles = self.last_t;
             self.clock_t += cycles;
@@ -64,24 +63,13 @@ impl Cpu {
         }
     }
 
-    pub fn interrupt(&mut self, addr: u16, mmu: &mut Mmu) -> usize {
+    pub fn interrupt(&mut self, addr: u16, interconnect: &mut Interconnect) -> usize {
         let cycles = 4;
         self.last_t = cycles;
         self.clock_t += cycles;
-        self.push(Reg16::PC, mmu);
+        self.push(Reg16::PC, interconnect);
         self.reg_pc = addr;
         cycles
-    }
-
-    fn arith<F>(&mut self, reg: Reg8, f: F)
-        where F: FnOnce(u8, u8) -> u8
-    {
-        self.last_t = 4;
-        let old = self.reg_a;
-        let value = self.read_reg(reg);
-        let result = f(old, value);
-        self.reg_a = result;
-        self.flag_reg.zero = result == 0;
     }
 
     fn add(&mut self, reg: Reg8) {
@@ -120,10 +108,10 @@ impl Cpu {
         self.flag_reg.carry = (old as u32) + (value as u32) >= 0x10000;
     }
 
-    fn add_hl(&mut self, mmu: &mut Mmu) {
+    fn add_hl(&mut self, interconnect: &mut Interconnect) {
         self.last_t = 8;
         let addr = self.read_reg16(Reg16::HL);
-        let value = self.read_byte(mmu, addr);
+        let value = self.read_byte(interconnect, addr);
         let old = self.reg_a;
         let result = old.wrapping_add(value);
         self.reg_a = result;
@@ -133,10 +121,10 @@ impl Cpu {
         self.flag_reg.carry = (old as u16) + (value as u16) > 255;
     }
 
-    fn addi(&mut self, carry: bool, mmu: &mut Mmu) {
+    fn addi(&mut self, carry: bool, interconnect: &mut Interconnect) {
         self.last_t = 8;
         let addr = self.reg_pc;
-        let value = self.read_byte(mmu, addr);
+        let value = self.read_byte(interconnect, addr);
         self.reg_pc += 1;
         let old = self.reg_a;
         let result = if carry && self.flag_reg.carry {
@@ -152,10 +140,10 @@ impl Cpu {
         self.flag_reg.half = (old & 0x0F + value & 0x0F) & 0x10 == 0x10;
     }
 
-    fn andi(&mut self, mmu: &mut Mmu) {
+    fn andi(&mut self, interconnect: &mut Interconnect) {
         self.last_t = 8;
         let pc = self.reg_pc;
-        let value = self.read_byte(mmu, pc);
+        let value = self.read_byte(interconnect, pc);
         self.reg_pc += 1;
         let old = self.reg_a;
         let result = old & value;
@@ -185,6 +173,30 @@ impl Cpu {
         self.flag_reg.half = true;
     }
 
+    fn bit_hl(&mut self, bit: u8, interconnect: &mut Interconnect) {
+        self.last_t = 16;
+        let addr = self.read_reg16(Reg16::HL);
+        let value = interconnect.read_byte(addr);
+        let result = value & (1 << bit) != 0;
+        self.flag_reg.zero = !result;
+        self.flag_reg.sub = false;
+        self.flag_reg.half = true;
+    }
+
+    fn call (&mut self, flag: JF, interconnect: &mut Interconnect) {
+        let pc = self.reg_pc;
+        let addr = self.read_word(interconnect, pc);
+        self.reg_pc += 2;
+        let jump = self.jump_match(flag);
+        if jump {
+            self.push(Reg16::PC, interconnect);
+            self.reg_pc = addr;
+            self.last_t = 24;
+        } else {
+            self.last_t = 12;
+        }
+    }
+
     fn cp(&mut self, reg: Reg8) {
         self.last_t = 4;
         let old = self.reg_a;
@@ -205,10 +217,10 @@ impl Cpu {
         self.flag_reg.carry = old < imm;
     }
 
-    fn cp_hl(&mut self, mmu: &mut Mmu) {
+    fn cp_hl(&mut self, interconnect: &mut Interconnect) {
         self.last_t = 8;
         let addr = self.read_reg16(Reg16::HL);
-        let value = self.read_byte(mmu, addr);
+        let value = self.read_byte(interconnect, addr);
         let old = self.reg_a;
         let result = old.wrapping_sub(value);
         self.flag_reg.zero = result == 0x00;
@@ -263,9 +275,9 @@ impl Cpu {
         }
     }
 
-    fn jr(&mut self, flag: JF, mmu: &mut Mmu) {
+    fn jr(&mut self, flag: JF, interconnect: &mut Interconnect) {
         let pc = self.reg_pc;
-        let rel_addr = self.read_byte(mmu, pc) as i8;
+        let rel_addr = self.read_byte(interconnect, pc) as i8;
         self.reg_pc = pc.saturating_add(1);
         let jump = self.jump_match(flag);
         let jump_addr = self.reg_pc.wrapping_add(rel_addr as u16);
@@ -277,9 +289,9 @@ impl Cpu {
         }
     }
 
-    fn jp(&mut self, flag: JF, mmu: &mut Mmu) {
+    fn jp(&mut self, flag: JF, interconnect: &mut Interconnect) {
         let pc = self.reg_pc;
-        let addr = self.read_word(mmu, pc);
+        let addr = self.read_word(interconnect, pc);
         self.reg_pc += 2;
         let jump = self.jump_match(flag);
         if jump {
@@ -296,37 +308,37 @@ impl Cpu {
         self.write_reg(rd, value);
     }
 
-    fn ldi(&mut self, reg: Reg8, mmu: &mut Mmu) {
+    fn ldi(&mut self, reg: Reg8, interconnect: &mut Interconnect) {
         self.last_t = 8;
         let pc = self.reg_pc;
-        let value = self.read_byte(mmu, pc);
+        let value = self.read_byte(interconnect, pc);
         self.reg_pc += 1;
         self.write_reg(reg, value);
     }
 
-    fn ldi16(&mut self, reg: Reg16, mmu: &mut Mmu) {
+    fn ldi16(&mut self, reg: Reg16, interconnect: &mut Interconnect) {
         self.last_t = 12;
         let pc = self.reg_pc;
-        let value = self.read_word(mmu, pc);
+        let value = self.read_word(interconnect, pc);
         self.reg_pc += 2;
         self.write_reg16(reg, value);
     }
 
-    fn ld_from_hl(&mut self, reg: Reg8, mmu: &mut Mmu) {
+    fn ld_from_hl(&mut self, reg: Reg8, interconnect: &mut Interconnect) {
         self.last_t = 8;
         let addr = self.read_reg16(Reg16::HL);
-        let value = self.read_byte(mmu, addr);
+        let value = self.read_byte(interconnect, addr);
         self.write_reg(reg, value);
     }
 
-    fn ld_to_hl(&mut self, reg: Reg8, mmu: &mut Mmu) {
+    fn ld_to_hl(&mut self, reg: Reg8, interconnect: &mut Interconnect) {
         self.last_t = 8;
         let addr = self.read_reg16(Reg16::HL);
         let value = self.read_reg(reg);
-        self.write_byte(mmu, addr, value);
+        self.write_byte(interconnect, addr, value);
     }
 
-    fn ld_from_mem(&mut self, reg: Reg16, id: ID, mmu: &mut Mmu) {
+    fn ld_from_mem(&mut self, reg: Reg16, id: ID, interconnect: &mut Interconnect) {
         let addr = self.read_reg16(reg);
         let next_addr = match id {
             ID::None => addr,
@@ -334,12 +346,12 @@ impl Cpu {
             ID::Dec => addr - 1,
         };
         self.write_reg16(reg, next_addr);
-        let value = self.read_byte(mmu, addr);
+        let value = self.read_byte(interconnect, addr);
         self.reg_a = value;
         self.last_t = 8;
     }
 
-    fn ld_to_mem(&mut self, reg: Reg16, id: ID, mmu: &mut Mmu) {
+    fn ld_to_mem(&mut self, reg: Reg16, id: ID, interconnect: &mut Interconnect) {
         self.last_t = 8;
         let value = self.reg_a;
         let addr = self.read_reg16(reg);
@@ -349,7 +361,7 @@ impl Cpu {
             ID::Dec => addr - 1,
         };
         self.write_reg16(reg, next_addr);
-        self.write_byte(mmu, addr, value);
+        self.write_byte(interconnect, addr, value);
     }
 
     fn or(&mut self, reg: Reg8) {
@@ -362,18 +374,18 @@ impl Cpu {
         self.flag_reg.carry = false;
     }
 
-    fn pop(&mut self, reg: Reg16, mmu: &mut Mmu) {
+    fn pop(&mut self, reg: Reg16, interconnect: &mut Interconnect) {
         let sp = self.reg_sp;
-        let value = self.read_word(mmu, sp);
+        let value = self.read_word(interconnect, sp);
         self.write_reg16(reg, value);
         self.reg_sp += 2;
         self.last_t = 12;
     }
 
-    fn push(&mut self, reg: Reg16, mmu: &mut Mmu) {
+    fn push(&mut self, reg: Reg16, interconnect: &mut Interconnect) {
         let sp = self.reg_sp - 2;
         let value = self.read_reg16(reg);
-        self.write_word(mmu, sp, value);
+        self.write_word(interconnect, sp, value);
         self.reg_sp = sp;
         self.last_t = 16;
     }
@@ -385,11 +397,19 @@ impl Cpu {
         self.write_reg(reg, result);
     }
 
-    fn ret(&mut self, flag: JF, mmu: &mut Mmu) {
+    fn res_hl(&mut self, bit: u8, interconnect: &mut Interconnect) {
+        self.last_t = 16;
+        let addr = self.read_reg16(Reg16::HL);
+        let value = interconnect.read_byte(addr);
+        let result = value & !(1 << bit);
+        interconnect.write_byte(addr, result);
+    }
+
+    fn ret(&mut self, flag: JF, interconnect: &mut Interconnect) {
         let jump = self.jump_match(flag);
         if jump {
             let sp = self.reg_sp;
-            let addr = self.read_word(mmu, sp);
+            let addr = self.read_word(interconnect, sp);
             self.reg_pc = addr;
             self.reg_sp = sp + 2;
             match flag {
@@ -435,11 +455,11 @@ impl Cpu {
         self.flag_reg.carry = value & (1 << 0) != 0;
     }
 
-    fn rst(&mut self, addr: u16, mmu: &mut Mmu) {
+    fn rst(&mut self, addr: u16, interconnect: &mut Interconnect) {
         self.last_t = 16;
         let sp = self.reg_sp - 2;
         let pc = self.reg_pc;
-        self.write_word(mmu, sp, pc);
+        self.write_word(interconnect, sp, pc);
         self.reg_pc = addr;
         self.reg_sp = sp;
     }
@@ -470,10 +490,10 @@ impl Cpu {
         self.flag_reg.carry = old < value;
     }
 
-    fn subi(&mut self, mmu: &mut Mmu) {
+    fn subi(&mut self, interconnect: &mut Interconnect) {
         self.last_t = 8;
         let pc = self.reg_pc;
-        let imm = self.read_byte(mmu, pc);
+        let imm = self.read_byte(interconnect, pc);
         self.reg_pc += 1;
         let old = self.reg_a;
         let result = old.wrapping_sub(imm);
@@ -484,11 +504,11 @@ impl Cpu {
         self.flag_reg.carry = old < imm;
     }
 
-    fn sub_hl(&mut self, mmu: &mut Mmu) {
+    fn sub_hl(&mut self, interconnect: &mut Interconnect) {
         self.last_t = 8;
         let addr = self.read_reg16(Reg16::HL);
         let old = self.reg_a;
-        let value = self.read_byte(mmu, addr);
+        let value = self.read_byte(interconnect, addr);
         let result = old.wrapping_sub(value);
         self.reg_a = result;
         self.flag_reg.zero = result == 0x00;
@@ -521,10 +541,10 @@ impl Cpu {
         self.flag_reg.carry = false;
     }
 
-    fn xor_hl(&mut self, mmu: &mut Mmu) {
+    fn xor_hl(&mut self, interconnect: &mut Interconnect) {
         self.last_t = 8;
         let addr = self.read_reg16(Reg16::HL);
-        let value = self.read_byte(mmu, addr);
+        let value = self.read_byte(interconnect, addr);
         let result = self.reg_a ^ value;
         self.reg_a = result;
         self.flag_reg.zero = result == 0x00;
@@ -533,20 +553,20 @@ impl Cpu {
         self.flag_reg.carry = false;
     }
 
-    fn read_byte(&mut self, mmu: &mut Mmu, addr: u16) -> u8 {
-        mmu.read_byte(addr as usize)
+    fn read_byte(&mut self, interconnect: &mut Interconnect, addr: u16) -> u8 {
+        interconnect.read_byte(addr)
     }
 
-    fn read_word(&mut self, mmu: &mut Mmu, addr: u16) -> u16 {
-        mmu.read_word(addr as usize)
+    fn read_word(&mut self, interconnect: &mut Interconnect, addr: u16) -> u16 {
+        interconnect.read_word(addr)
     }
 
-    fn write_byte(&mut self, mmu: &mut Mmu, addr: u16, value: u8) {
-        mmu.write_byte(addr as usize, value);
+    fn write_byte(&mut self, interconnect: &mut Interconnect, addr: u16, value: u8) {
+        interconnect.write_byte(addr, value);
     }
 
-    fn write_word(&mut self, mmu: &mut Mmu, addr: u16, value: u16) {
-        mmu.write_word(addr as usize, value);
+    fn write_word(&mut self, interconnect: &mut Interconnect, addr: u16, value: u16) {
+        interconnect.write_word(addr, value);
     }
 
     fn read_reg(&self, reg: Reg8) -> u8 {
@@ -615,68 +635,68 @@ impl Cpu {
         }
     }
 
-    fn execute_instr(&mut self, opcode: u8, mmu: &mut Mmu) {
+    fn execute_instr(&mut self, opcode: u8, interconnect: &mut Interconnect) {
         match opcode {
             0x00 => {
                 // NOP
                 self.last_t = 4;
                 println!("NOP");
             },
-            0x01 => self.ldi16(Reg16::BC, mmu),
-            0x02 => self.ld_to_mem(Reg16::BC, ID::None, mmu),
+            0x01 => self.ldi16(Reg16::BC, interconnect),
+            0x02 => self.ld_to_mem(Reg16::BC, ID::None, interconnect),
             0x03 => self.inc16(Reg16::BC),
             0x04 => self.inc8(Reg8::B),
             0x05 => self.dec8(Reg8::B),
-            0x06 => self.ldi(Reg8::B, mmu),
+            0x06 => self.ldi(Reg8::B, interconnect),
 
             0x09 => self.add_to_hl(Reg16::BC),
-            0x0A => self.ld_from_mem(Reg16::BC, ID::None, mmu),
+            0x0A => self.ld_from_mem(Reg16::BC, ID::None, interconnect),
             0x0B => self.dec16(Reg16::BC),
             0x0C => self.inc8(Reg8::C),
             0x0D => self.dec8(Reg8::C),
-            0x0E => self.ldi(Reg8::C, mmu),
+            0x0E => self.ldi(Reg8::C, interconnect),
 
-            0x11 => self.ldi16(Reg16::DE, mmu),
-            0x12 => self.ld_to_mem(Reg16::DE, ID::None, mmu),
+            0x11 => self.ldi16(Reg16::DE, interconnect),
+            0x12 => self.ld_to_mem(Reg16::DE, ID::None, interconnect),
             0x13 => self.inc16(Reg16::DE),
             0x14 => self.inc8(Reg8::D),
             0x15 => self.dec8(Reg8::D),
-            0x16 => self.ldi(Reg8::D, mmu),
+            0x16 => self.ldi(Reg8::D, interconnect),
             0x17 => self.rla(),
 
-            0x18 => self.jr(JF::Always, mmu),
+            0x18 => self.jr(JF::Always, interconnect),
             0x19 => self.add_to_hl(Reg16::DE),
-            0x1A => self.ld_from_mem(Reg16::DE, ID::None, mmu),
+            0x1A => self.ld_from_mem(Reg16::DE, ID::None, interconnect),
             0x1B => self.dec16(Reg16::DE),
             0x1C => self.inc8(Reg8::E),
             0x1D => self.dec8(Reg8::E),
-            0x1E => self.ldi(Reg8::E, mmu),
+            0x1E => self.ldi(Reg8::E, interconnect),
 
-            0x20 => self.jr(JF::NZ, mmu),
-            0x21 => self.ldi16(Reg16::HL, mmu),
-            0x22 => self.ld_to_mem(Reg16::HL, ID::Inc, mmu),
+            0x20 => self.jr(JF::NZ, interconnect),
+            0x21 => self.ldi16(Reg16::HL, interconnect),
+            0x22 => self.ld_to_mem(Reg16::HL, ID::Inc, interconnect),
             0x23 => self.inc16(Reg16::HL),
             0x24 => self.inc8(Reg8::H),
             0x25 => self.dec8(Reg8::H),
-            0x26 => self.ldi(Reg8::H, mmu),
+            0x26 => self.ldi(Reg8::H, interconnect),
 
-            0x28 => self.jr(JF::Z, mmu),
+            0x28 => self.jr(JF::Z, interconnect),
             0x29 => self.add_to_hl(Reg16::HL),
-            0x2A => self.ld_from_mem(Reg16::HL, ID::Inc, mmu),
+            0x2A => self.ld_from_mem(Reg16::HL, ID::Inc, interconnect),
             0x2B => self.dec16(Reg16::HL),
             0x2C => self.inc8(Reg8::L),
             0x2D => self.dec8(Reg8::L),
-            0x2E => self.ldi(Reg8::L, mmu),
-            0x2F => {
+            0x2E => self.ldi(Reg8::L, interconnect),
+            0x2F => { // CPL
                 self.last_t = 4;
                 self.reg_a ^= 0xFF;
                 self.flag_reg.sub = true;
                 self.flag_reg.half = true;
             }
 
-            0x30 => self.jr(JF::NC, mmu),
-            0x31 => self.ldi16(Reg16::SP, mmu),
-            0x32 => self.ld_to_mem(Reg16::HL, ID::Dec, mmu),
+            0x30 => self.jr(JF::NC, interconnect),
+            0x31 => self.ldi16(Reg16::SP, interconnect),
+            0x32 => self.ld_to_mem(Reg16::HL, ID::Dec, interconnect),
             0x33 => self.inc16(Reg16::SP),
             0x34 => {
                 // inc (HL)
@@ -702,10 +722,10 @@ impl Cpu {
             0x36 => { // LD (HL), d8
                 self.last_t = 12;
                 let pc = self.reg_pc;
-                let value = self.read_byte(mmu, pc);
+                let value = self.read_byte(interconnect, pc);
                 self.reg_pc += 1;
                 let addr = self.read_reg16(Reg16::HL);
-                self.write_byte(mmu, addr, value);
+                self.write_byte(interconnect, addr, value);
             }
             0x37 => {
                 // SCF
@@ -715,13 +735,13 @@ impl Cpu {
                 self.last_t = 4;
             }
 
-            0x38 => self.jr(JF::C, mmu),
+            0x38 => self.jr(JF::C, interconnect),
             0x39 => self.add_to_hl(Reg16::SP),
-            0x3A => self.ld_from_mem(Reg16::HL, ID::Dec, mmu),
+            0x3A => self.ld_from_mem(Reg16::HL, ID::Dec, interconnect),
             0x3B => self.dec16(Reg16::SP),
             0x3C => self.inc8(Reg8::A),
             0x3D => self.dec8(Reg8::A),
-            0x3E => self.ldi(Reg8::A, mmu),
+            0x3E => self.ldi(Reg8::A, interconnect),
 
             0x40 => self.ld(Reg8::B, Reg8::B),
             0x41 => self.ld(Reg8::B, Reg8::C),
@@ -729,7 +749,7 @@ impl Cpu {
             0x43 => self.ld(Reg8::B, Reg8::E),
             0x44 => self.ld(Reg8::B, Reg8::H),
             0x45 => self.ld(Reg8::B, Reg8::L),
-            0x46 => self.ld_from_hl(Reg8::B, mmu),
+            0x46 => self.ld_from_hl(Reg8::B, interconnect),
             0x47 => self.ld(Reg8::B, Reg8::A),
 
             0x48 => self.ld(Reg8::C, Reg8::B),
@@ -738,7 +758,7 @@ impl Cpu {
             0x4B => self.ld(Reg8::C, Reg8::E),
             0x4C => self.ld(Reg8::C, Reg8::H),
             0x4D => self.ld(Reg8::C, Reg8::L),
-            0x4E => self.ld_from_hl(Reg8::C, mmu),
+            0x4E => self.ld_from_hl(Reg8::C, interconnect),
             0x4F => self.ld(Reg8::C, Reg8::A),
 
             0x50 => self.ld(Reg8::D, Reg8::B),
@@ -747,7 +767,7 @@ impl Cpu {
             0x53 => self.ld(Reg8::D, Reg8::E),
             0x54 => self.ld(Reg8::D, Reg8::H),
             0x55 => self.ld(Reg8::D, Reg8::L),
-            0x56 => self.ld_from_hl(Reg8::D, mmu),
+            0x56 => self.ld_from_hl(Reg8::D, interconnect),
             0x57 => self.ld(Reg8::D, Reg8::A),
 
             0x58 => self.ld(Reg8::E, Reg8::B),
@@ -756,7 +776,7 @@ impl Cpu {
             0x5B => self.ld(Reg8::E, Reg8::E),
             0x5C => self.ld(Reg8::E, Reg8::H),
             0x5D => self.ld(Reg8::E, Reg8::L),
-            0x5E => self.ld_from_hl(Reg8::E, mmu),
+            0x5E => self.ld_from_hl(Reg8::E, interconnect),
             0x5F => self.ld(Reg8::E, Reg8::A),
 
             0x60 => self.ld(Reg8::H, Reg8::B),
@@ -765,7 +785,7 @@ impl Cpu {
             0x63 => self.ld(Reg8::H, Reg8::E),
             0x64 => self.ld(Reg8::H, Reg8::H),
             0x65 => self.ld(Reg8::H, Reg8::L),
-            0x66 => self.ld_from_hl(Reg8::H, mmu),
+            0x66 => self.ld_from_hl(Reg8::H, interconnect),
             0x67 => self.ld(Reg8::H, Reg8::A),
 
             0x68 => self.ld(Reg8::L, Reg8::B),
@@ -774,17 +794,17 @@ impl Cpu {
             0x6B => self.ld(Reg8::L, Reg8::E),
             0x6C => self.ld(Reg8::L, Reg8::H),
             0x6D => self.ld(Reg8::L, Reg8::L),
-            0x6E => self.ld_from_hl(Reg8::L, mmu),
+            0x6E => self.ld_from_hl(Reg8::L, interconnect),
             0x6F => self.ld(Reg8::L, Reg8::A),
 
-            0x70 => self.ld_to_hl(Reg8::B, mmu),
-            0x71 => self.ld_to_hl(Reg8::C, mmu),
-            0x72 => self.ld_to_hl(Reg8::D, mmu),
-            0x73 => self.ld_to_hl(Reg8::E, mmu),
-            0x74 => self.ld_to_hl(Reg8::H, mmu),
-            0x75 => self.ld_to_hl(Reg8::L, mmu),
+            0x70 => self.ld_to_hl(Reg8::B, interconnect),
+            0x71 => self.ld_to_hl(Reg8::C, interconnect),
+            0x72 => self.ld_to_hl(Reg8::D, interconnect),
+            0x73 => self.ld_to_hl(Reg8::E, interconnect),
+            0x74 => self.ld_to_hl(Reg8::H, interconnect),
+            0x75 => self.ld_to_hl(Reg8::L, interconnect),
             0x76 => self.halt(),
-            0x77 => self.ld_to_hl(Reg8::A, mmu),
+            0x77 => self.ld_to_hl(Reg8::A, interconnect),
 
             0x78 => self.ld(Reg8::A, Reg8::B),
             0x79 => self.ld(Reg8::A, Reg8::C),
@@ -792,7 +812,7 @@ impl Cpu {
             0x7B => self.ld(Reg8::A, Reg8::E),
             0x7C => self.ld(Reg8::A, Reg8::H),
             0x7D => self.ld(Reg8::A, Reg8::L),
-            0x7E => self.ld_from_hl(Reg8::A, mmu),
+            0x7E => self.ld_from_hl(Reg8::A, interconnect),
             0x7F => self.ld(Reg8::A, Reg8::A),
 
             0x80 => self.add(Reg8::B),
@@ -801,7 +821,7 @@ impl Cpu {
             0x83 => self.add(Reg8::E),
             0x84 => self.add(Reg8::H),
             0x85 => self.add(Reg8::L),
-            0x86 => self.add_hl(mmu),
+            0x86 => self.add_hl(interconnect),
             0x87 => self.add(Reg8::A),
 
             0x88 => self.adc(Reg8::B),
@@ -819,7 +839,7 @@ impl Cpu {
             0x93 => self.sub(Reg8::E),
             0x94 => self.sub(Reg8::H),
             0x95 => self.sub(Reg8::L),
-            0x96 => self.sub_hl(mmu),
+            0x96 => self.sub_hl(interconnect),
             0x97 => self.sub(Reg8::A),
 
             0x98 => self.sbc(Reg8::B),
@@ -846,7 +866,7 @@ impl Cpu {
             0xAB => self.xor(Reg8::E),
             0xAC => self.xor(Reg8::H),
             0xAD => self.xor(Reg8::L),
-            0xAE => self.xor_hl(mmu),
+            0xAE => self.xor_hl(interconnect),
             0xAF => self.xor(Reg8::A),
 
             0xB0 => self.or(Reg8::B),
@@ -864,39 +884,25 @@ impl Cpu {
             0xBB => self.cp(Reg8::E),
             0xBC => self.cp(Reg8::H),
             0xBD => self.cp(Reg8::L),
-            0xBE => self.cp_hl(mmu),
+            0xBE => self.cp_hl(interconnect),
             0xBF => self.cp(Reg8::A),
 
-            0xC0 => self.ret(JF::NZ, mmu),
-            0xC1 => self.pop(Reg16::BC, mmu),
-            0xC2 => self.jp(JF::NZ, mmu),
-            0xC3 => self.jp(JF::Always, mmu),
-            0xC4 => {
-                // TODO CALL NZ, a16
-                if self.jump_match(JF::NZ) {
-                    let pc = self.reg_pc;
-                    let addr = self.read_word(mmu, pc);
-                    self.reg_sp -= 2;
-                    let sp = self.reg_sp;
-                    self.write_word(mmu, sp, pc + 2);
-                    self.reg_pc = addr;
-                    self.last_t = 24;
-                } else {
-                    self.reg_pc += 2;
-                    self.last_t = 12;
-                }
-            },
-            0xC5 => self.push(Reg16::BC, mmu),
-            0xC6 => self.addi(false, mmu),
-            0xC7 => self.rst(0x00, mmu),
+            0xC0 => self.ret(JF::NZ, interconnect),
+            0xC1 => self.pop(Reg16::BC, interconnect),
+            0xC2 => self.jp(JF::NZ, interconnect),
+            0xC3 => self.jp(JF::Always, interconnect),
+            0xC4 => self.call(JF::NZ, interconnect),
+            0xC5 => self.push(Reg16::BC, interconnect),
+            0xC6 => self.addi(false, interconnect),
+            0xC7 => self.rst(0x00, interconnect),
 
-            0xC8 => self.ret(JF::Z, mmu),
-            0xC9 => self.ret(JF::Always, mmu),
-            0xCA => self.jp(JF::Z, mmu),
+            0xC8 => self.ret(JF::Z, interconnect),
+            0xC9 => self.ret(JF::Always, interconnect),
+            0xCA => self.jp(JF::Z, interconnect),
             0xCB => {
                 // TODO 0xCB instructions
                 let pc = self.reg_pc;
-                let op = self.read_byte(mmu, pc);
+                let op = self.read_byte(interconnect, pc);
                 self.reg_pc = pc.saturating_add(1);
                 match op {
                     0x10 => self.rl(Reg8::B),
@@ -932,7 +938,7 @@ impl Cpu {
                     0x43 => self.bit(0, Reg8::E),
                     0x44 => self.bit(0, Reg8::H),
                     0x45 => self.bit(0, Reg8::L),
-
+                    0x46 => self.bit_hl(0, interconnect),
                     0x47 => self.bit(0, Reg8::A),
 
                     0x48 => self.bit(1, Reg8::B),
@@ -941,14 +947,24 @@ impl Cpu {
                     0x4B => self.bit(1, Reg8::E),
                     0x4C => self.bit(1, Reg8::H),
                     0x4D => self.bit(1, Reg8::L),
-
+                    0x4E => self.bit_hl(1, interconnect),
                     0x4F => self.bit(1, Reg8::A),
+
+                    0x50 => self.bit(2, Reg8::B),
+                    0x51 => self.bit(2, Reg8::C),
+                    0x52 => self.bit(2, Reg8::D),
+                    0x53 => self.bit(2, Reg8::E),
+                    0x54 => self.bit(2, Reg8::H),
+                    0x55 => self.bit(2, Reg8::L),
+                    0x56 => self.bit_hl(2, interconnect),
+                    0x57 => self.bit(2, Reg8::A),
 
                     0x6F => self.bit(5, Reg8::A),
 
                     0x70 => self.bit(6, Reg8::B),
 
                     0x7C => self.bit(7, Reg8::H),
+                    0x7E => self.bit_hl(7, interconnect),
 
                     0x80 => self.res(0, Reg8::B),
                     0x81 => self.res(0, Reg8::C),
@@ -956,7 +972,7 @@ impl Cpu {
                     0x83 => self.res(0, Reg8::E),
                     0x84 => self.res(0, Reg8::H),
                     0x85 => self.res(0, Reg8::L),
-//                    0x86 => self.res(0, Reg8::B), // (HL)
+                    0x86 => self.res_hl(0, interconnect),
                     0x87 => self.res(0, Reg8::A),
 
                     0x88 => self.res(1, Reg8::B),
@@ -985,76 +1001,54 @@ impl Cpu {
 
                     0xAF => self.res(5, Reg8::A),
 
+                    0xBE => self.res_hl(7, interconnect),
+
                     _ => panic!("Unknown CB op: {:#X} at addr: {:#X}", op, pc - 1),
                 }
             },
-            0xCC => {
-                // CALL Z,a16
-                if self.flag_reg.zero {
-                    let pc = self.reg_pc;
-                    let addr = self.read_word(mmu, pc);
-                    self.reg_sp -= 2;
-                    let sp = self.reg_sp;
-                    self.write_word(mmu, sp, pc + 2);
-                    self.reg_pc = addr;
-                    self.last_t = 24;
-                } else {
-                    self.reg_pc += 2;
-                    self.last_t = 12;
-                }
-            }
-            0xCD => {
-                // TODO CALL a16
-                let pc = self.reg_pc;
-                let addr = self.read_word(mmu, pc);
-                self.push(Reg16::PC, mmu);
-                self.reg_pc = addr;
-                self.last_t = 24;
-            }
-            0xCE => self.addi(true, mmu),
-            0xCF => self.rst(0x08, mmu),
+            0xCC => self.call(JF::Z, interconnect),
+            0xCD => self.call(JF::Always, interconnect),
+            0xCE => self.addi(true, interconnect),
+            0xCF => self.rst(0x08, interconnect),
 
-            0xD0 => self.ret(JF::NC, mmu),
-            0xD1 => self.pop(Reg16::DE, mmu),
-            0xD2 => self.jp(JF::NC, mmu),
-            0xD5 => self.push(Reg16::DE, mmu),
-            0xD6 => self.subi(mmu),
-            0xD7 => self.rst(0x10, mmu),
+            0xD0 => self.ret(JF::NC, interconnect),
+            0xD1 => self.pop(Reg16::DE, interconnect),
+            0xD2 => self.jp(JF::NC, interconnect),
+            0xD5 => self.push(Reg16::DE, interconnect),
+            0xD6 => self.subi(interconnect),
+            0xD7 => self.rst(0x10, interconnect),
 
-            0xD8 => self.ret(JF::C, mmu),
+            0xD8 => self.ret(JF::C, interconnect),
             0xD9 => {
-                self.ret(JF::Always, mmu);
+                self.ret(JF::Always, interconnect);
                 self.ime = true;
             }
-            0xDA => self.jp(JF::C, mmu),
-            0xDF => self.rst(0x18, mmu),
+            0xDA => self.jp(JF::C, interconnect),
+            0xDF => self.rst(0x18, interconnect),
 
             0xE0 => {
                 // TODO LDH (a8),A
                 let pc = self.reg_pc;
-                let offset = self.read_byte(mmu, pc);
+                let offset = self.read_byte(interconnect, pc);
                 let addr = 0xFF00 + offset as u16;
-                let value = self.read_reg(Reg8::A);
+                let value = self.reg_a;
                 self.reg_pc += 1;
-                self.write_byte(mmu, addr, value);
+                self.write_byte(interconnect, addr, value);
                 self.last_t = 12;
-                println!("LDH ({:#X}),A", addr);
             }
-            0xE1 => self.pop(Reg16::HL, mmu),
+            0xE1 => self.pop(Reg16::HL, interconnect),
             0xE2 => {
                 // TODO LD (C),A
-                println!("LD (0xFF00 + C), A");
                 let value = self.read_reg(Reg8::A);
                 let addr = (self.reg_c as u16) + 0xFF00;
-                self.write_byte(mmu, addr, value);
+                self.write_byte(interconnect, addr, value);
                 self.last_t = 8;
             }
-            0xE5 => self.push(Reg16::HL, mmu),
-            0xE6 => self.andi(mmu),
-            0xE7 => self.rst(0x20, mmu),
+            0xE5 => self.push(Reg16::HL, interconnect),
+            0xE6 => self.andi(interconnect),
+            0xE7 => self.rst(0x20, interconnect),
             0xE9 => {
                 // TODO JP (HL)
-                println!("JP (HL)");
                 let addr = self.read_reg16(Reg16::HL);
                 self.reg_pc = addr;
                 self.last_t = 4;
@@ -1062,49 +1056,42 @@ impl Cpu {
             0xEA => {
                 // TODO LD (a16),A
                 let pc = self.reg_pc;
-                let addr = self.read_word(mmu, pc);
+                let addr = self.read_word(interconnect, pc);
                 self.reg_pc += 2;
                 let value = self.read_reg(Reg8::A);
-                self.write_byte(mmu, addr, value);
+                self.write_byte(interconnect, addr, value);
                 self.last_t = 16;
-                println!("LD ({:#X}), A", addr);
             }
-            0xED => {
-                let pc = self.reg_pc;
-                let val = self.read_word(mmu, pc);
-                println!("{:?}", self);
-                panic!("Opcode 0xED is invalid! {:#X}", val)
-            }
-            0xEF => self.rst(0x28, mmu),
+            0xEF => self.rst(0x28, interconnect),
             0xF0 => {
                 // TODO LDH A,(a8)
                 let pc = self.reg_pc;
-                let offset = self.read_byte(mmu, pc);
+                let offset = self.read_byte(interconnect, pc);
                 let addr = 0xFF00 + offset as u16;
-                let value = self.read_byte(mmu, addr);
+                let value = self.read_byte(interconnect, addr);
                 self.reg_pc += 1;
                 self.reg_a = value;
                 self.last_t = 12;
-                println!("LDH A,({:#X})", addr);
             }
-            0xF1 => self.pop(Reg16::AF, mmu),
+            0xF1 => self.pop(Reg16::AF, interconnect),
             0xF3 => {
                 // Disable Interrupts
                 self.ime = false;
                 self.last_t = 4;
             }
-            0xF5 => self.push(Reg16::AF, mmu),
-            0xF7 => self.rst(0x30, mmu),
+            0xF5 => self.push(Reg16::AF, interconnect),
+            0xF7 => self.rst(0x30, interconnect),
             0xFA => { // LD A, (a16)
                 let pc = self.reg_pc;
-                let addr = self.read_word(mmu, pc);
+                let addr = self.read_word(interconnect, pc);
                 self.reg_pc += 2;
-                let value = self.read_byte(mmu, addr);
+                let value = self.read_byte(interconnect, addr);
                 self.reg_a = value;
                 self.last_t = 12;
             }
             0xFB => {
                 // Enable Interrupts
+                println!("Interrupts Enabled!");
                 self.ime = true;
                 self.last_t = 4;
             }
@@ -1112,11 +1099,11 @@ impl Cpu {
             0xFE => { // CP d8
                 self.last_t = 8;
                 let pc = self.reg_pc;
-                let value = self.read_byte(mmu, pc);
+                let value = self.read_byte(interconnect, pc);
                 self.reg_pc += 1;
                 self.cpi(value);
             }
-            0xFF => self.rst(0x38, mmu),
+            0xFF => self.rst(0x38, interconnect),
 
             _ => panic!("Unknown opcode: {:#X} at address {:#X}", opcode, self.reg_pc - 1)
         }

@@ -1,38 +1,36 @@
 use dmg::cpu::Cpu;
-use dmg::mmu::Mmu;
+use dmg::interconnect::Interconnect;
 
 #[derive(Debug)]
 pub struct Dmg {
     cpu: Cpu,
-    mmu: Mmu,
+    interconnect: Interconnect,
 }
 
 impl Dmg {
-    pub fn new(boot: Vec<u8>) -> Dmg {
+    pub fn new(boot: Box<[u8]>, rom: Box<[u8]>) -> Dmg {
         Dmg {
             cpu: Cpu::new(),
-            mmu: Mmu::new(boot)
+            interconnect: Interconnect::new(boot, rom),
         }
     }
 
     pub fn step(&mut self) {
-        let cycles = self.cpu.step(&mut self.mmu);
+        let cycles = self.cpu.step(&mut self.interconnect);
         let int_cycles = self.proc_interrupts();
-        self.mmu.step_gpu(cycles + int_cycles);
+        self.interconnect.step_ppu(cycles + int_cycles);
     }
 
     fn proc_interrupts(&mut self) -> usize {
-        if self.cpu.ime {
-            let int_flags = self.mmu.read_byte(0xFF0F);
-            let en_flags = self.mmu.read_byte(0xFFFF);
-            for bit in 0..5 {
-                let flagged = int_flags >> bit & 0b1 != 0;
-                let enabled = en_flags >> bit & 0b1 != 0;
-                if flagged && enabled {
-                    self.cpu.halted = false;
-                    // unflag interrupt
-                    self.mmu.write_byte(0xFF0F, int_flags & !(1 << bit));
-                    // interrupt CPU
+        let int_flags = self.interconnect.read_byte(0xFF0F);
+        let en_flags = self.interconnect.read_byte(0xFFFF);
+        for bit in 0..5 {
+            let flagged = int_flags >> bit & 0b1 != 0;
+            let enabled = en_flags >> bit & 0b1 != 0;
+            if flagged && enabled {
+                self.cpu.halted = false;
+                if self.cpu.ime {
+                    self.interconnect.write_byte(0xFF0F, int_flags & !(1 << bit));
                     return self.interrupt(bit);
                 }
             }
@@ -49,6 +47,6 @@ impl Dmg {
             4 => 0x60,
             _ => unreachable!()
         };
-        self.cpu.interrupt(addr, &mut self.mmu)
+        self.cpu.interrupt(addr, &mut self.interconnect)
     }
 }
