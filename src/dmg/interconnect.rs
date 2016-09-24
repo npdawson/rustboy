@@ -1,6 +1,6 @@
 use byteorder::{LittleEndian, ByteOrder};
 
-use dmg::{Ppu}; // TODO Audio, ...?
+use dmg::{Cart, Ppu, Apu, Timer}; // TODO more periphs?
 use dmg::mem_map::{self, Addr};
 
 const RAM_SIZE: usize = 0x2000;
@@ -8,33 +8,38 @@ const RAM_SIZE: usize = 0x2000;
 #[derive(Debug)]
 pub struct Interconnect {
     ppu: Ppu,
+    apu: Apu,
+    timer: Timer,
 
     in_bootrom: bool,
     boot: Box<[u8]>,
-    cart: Box<[u8]>,
-
-    xram: Box<[u8]>,
+    cart: Cart,
 
     ram: Box<[u8]>,
     hram: Box<[u8]>,
 
     io_regs: Box<[u8]>, // TODO separate into other modules
-    iflags: u8,
+    serial_byte: u8,
+    serial_transfer_start: SerialTransfer,
+    serial_clock: SerialClock,
+    serial_shift_clock: SerialShift,
+
+    iflags: u8, // TODO break up the bits for store
     dma_addr: u8,
 
-    ie_reg: u8 // Interrupts Enable Register
+    ie_reg: u8 // Interrupts Enable Register TODO break up bits
 }
 
 impl Interconnect {
     pub fn new(boot_rom: Box<[u8]>, cart_rom: Box<[u8]>) -> Interconnect {
         Interconnect {
             ppu: Ppu::new(),
+            apu: Apu::new(),
+            timer: Timer::new(),
 
-            in_bootrom: true,
+            in_bootrom: false,
             boot: boot_rom,
-            cart: cart_rom, // TODO move into cart module
-
-            xram: vec![0; RAM_SIZE].into_boxed_slice(), // TODO move into cart mod
+            cart: Cart::new(cart_rom),
 
             ram: vec![0; RAM_SIZE].into_boxed_slice(),
             hram: vec![0; 128].into_boxed_slice(),
@@ -43,11 +48,13 @@ impl Interconnect {
                           0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                           0x80, 0xBF, 0xF3, 0x00, 0xBF, 0x00, 0x3F, 0x00, //0xFF10
                           0x00, 0xBF, 0x7F, 0xFF, 0x9F, 0x00, 0xBF, 0x00,
-                          0xFF, 0x00, 0x00, 0xBF, 0x77, 0xF3, 0xF1, 0x00, //0xFF20
-                          0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                          0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //0xFF30
-                          0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+                          0xFF, 0x00, 0x00, 0xBF, 0x77, 0xF3, 0xF1, 0x00] //0xFF20
                 .into_boxed_slice(),
+            serial_byte: 0,
+            serial_transfer_start: SerialTransfer::No,
+            serial_clock: SerialClock::Normal,
+            serial_shift_clock: SerialShift::External,
+
             iflags: 0,
             dma_addr: 0,
 
@@ -64,16 +71,30 @@ impl Interconnect {
             Addr::Rom(offset) => if self.in_bootrom && offset < 0x100 {
                 self.boot[offset]
             } else {
-                self.cart[offset]
+                self.cart.rom_read_byte(offset)
             },
             Addr::Vram(offset) => self.ppu.read_vram(offset),
-            Addr::Xram(offset) => self.xram[offset],
+            Addr::Xram(offset) => self.cart.ram_read_byte(offset),
             Addr::Ram(offset) => self.ram[offset],
             Addr::Echo(offset) => self.ram[offset],
             Addr::Oam(offset) => self.ppu.read_oam(offset),
+            Addr::Unused => 0xFF,
             Addr::Hram(offset) => self.hram[offset],
 
-            Addr::InterruptFlags => {0}, //TODO
+            Addr::SerialData => self.serial_byte, // TODO
+            Addr::SerialControl => self.read_serial_control(),
+            Addr::TimerModulo => self.timer.modulo,
+            Addr::TimerControl => self.timer.read_timer_control(),
+            Addr::InterruptFlags => self.iflags, // TODO
+
+            Addr::ApuChan1WaveLength => self.apu.read_chan1_wavelength(),
+            Addr::ApuChan1Envelope => self.apu.read_chan1_envelope(),
+            Addr::ApuChan1FreqLo => panic!("0xFF13 is write-only!"),
+            Addr::ApuChan1FreqHi => self.apu.read_chan1_freq_hi(),
+            Addr::ApuChanControl => self.apu.read_chan_control(),
+            Addr::ApuOutputSelect => self.apu.output_select,
+            Addr::ApuSoundOnReg => self.apu.read_sound_on_reg(),
+
             Addr::PpuControlReg => self.ppu.read_lcd_ctrl(),
             Addr::PpuStatusReg => self.ppu.read_lcd_stat(),
             Addr::PpuScrollY => self.ppu.scy,
@@ -89,6 +110,8 @@ impl Interconnect {
 
             Addr::BootromDisable => if self.in_bootrom { 1 } else { 0 },
             // Addr::CgbRamBank => self.cgb_ram_bank,
+            Addr::InterruptsEnable => self.ie_reg,
+            Addr::FF7F => 0xFF,
         }
     }
 
@@ -97,16 +120,16 @@ impl Interconnect {
             Addr::Rom(offset) => if self.in_bootrom && offset < 0x100 {
                 LittleEndian::read_u16(&self.boot[offset..])
             } else {
-                LittleEndian::read_u16(&self.cart[offset..])
+                self.cart.rom_read_word(offset)
             },
             Addr::Vram(offset) => self.ppu.read_vram16(offset),
-            Addr::Xram(offset) =>
-                LittleEndian::read_u16(&self.xram[offset..]),
+            Addr::Xram(offset) => self.cart.ram_read_word(offset),
             Addr::Ram(offset) =>
                 LittleEndian::read_u16(&self.ram[offset..]),
             Addr::Echo(offset) =>
                 LittleEndian::read_u16(&self.ram[offset..]),
             Addr::Oam(offset) => self.ppu.read_oam16(offset),
+            Addr::Unused => 0xFFFF,
             Addr::Hram(offset) =>
                 LittleEndian::read_u16(&self.hram[offset..]),
 
@@ -116,16 +139,29 @@ impl Interconnect {
 
     pub fn write_byte(&mut self, addr: u16, value: u8) {
         match mem_map::map_addr(addr) {
-            // TODO send offset and value to cart struct thru function
-            Addr::Rom(offset) => panic!("Talking to MBC not yet implemented"),
+            Addr::Rom(offset) => self.cart.mbc_write_byte(offset, value),
             Addr::Vram(offset) => self.ppu.write_vram(offset, value),
-            Addr::Xram(offset) => self.xram[offset] = value,
+            Addr::Xram(offset) => self.cart.ram_write_byte(offset, value),
             Addr::Ram(offset) => self.ram[offset] = value,
             Addr::Echo(offset) => self.ram[offset] = value,
             Addr::Oam(offset) => self.ppu.write_oam(offset, value),
+            Addr::Unused => {},
             Addr::Hram(offset) => self.hram[offset] = value,
 
+            Addr::SerialData => self.serial_byte = value, // TODO
+            Addr::SerialControl => self.write_serial_control(value),
+            Addr::TimerModulo => self.timer.modulo = value,
+            Addr::TimerControl => self.timer.write_timer_control(value),
             Addr::InterruptFlags => {}, //TODO
+
+            Addr::ApuChan1WaveLength => self.apu.write_chan1_wavelength(value),
+            Addr::ApuChan1Envelope => self.apu.write_chan1_envelope(value),
+            Addr::ApuChan1FreqLo => self.apu.write_chan1_freq_lo(value),
+            Addr::ApuChan1FreqHi => self.apu.write_chan1_freq_hi(value),
+            Addr::ApuChanControl => self.apu.write_chan_control(value),
+            Addr::ApuOutputSelect => self.apu.output_select = value,
+            Addr::ApuSoundOnReg => self.apu.write_sound_on_reg(value),
+
             Addr::PpuControlReg => self.ppu.write_lcd_ctrl(value),
             Addr::PpuStatusReg => self.ppu.write_lcd_stat(value),
             Addr::PpuScrollY => self.ppu.scy = value,
@@ -142,22 +178,23 @@ impl Interconnect {
             Addr::PpuWindowY => self.ppu.wy = value,
             Addr::PpuWindowX => self.ppu.wx = value,
 
-            Addr::BootromDisable => self.in_bootrom = value == 0,
+            Addr::BootromDisable => self.in_bootrom = false,
+            Addr::InterruptsEnable => self.ie_reg = value,
+            Addr::FF7F => {},
         }
     }
 
     pub fn write_word(&mut self, addr: u16, value: u16) {
         match mem_map::map_addr(addr) {
-            // TODO send offset and value to cart struct thru function
-            Addr::Rom(offset) => panic!("Talking to MBC not yet implemented"),
+            Addr::Rom(offset) => panic!("Write word to MBC not supported"),
             Addr::Vram(offset) => self.ppu.write_vram16(offset, value),
-            Addr::Xram(offset) =>
-                LittleEndian::write_u16(&mut self.xram[offset..], value),
+            Addr::Xram(offset) => self.cart.ram_write_word(offset, value),
             Addr::Ram(offset) =>
                 LittleEndian::write_u16(&mut self.ram[offset..], value),
             Addr::Echo(offset) =>
                 LittleEndian::write_u16(&mut self.ram[offset..], value),
             Addr::Oam(offset) => self.ppu.write_oam16(offset, value),
+            Addr::Unused => {},
             Addr::Hram(offset) =>
                 LittleEndian::write_u16(&mut self.hram[offset..], value),
 
@@ -165,7 +202,7 @@ impl Interconnect {
         }
     }
 
-    pub fn step_ppu(&mut self, cycles: usize) {
+    pub fn step(&mut self, cycles: usize) {
         if self.ppu.line == 144 {
             self.iflags |= 1 << 0;
         }
@@ -173,18 +210,70 @@ impl Interconnect {
             self.iflags |= 1 << 1;
         }
         self.ppu.step(cycles);
+        if self.timer.step(cycles) {
+            self.iflags |= 1 << 2;
+        }
     }
 
     fn dma(&mut self) {
         let addr = (self.dma_addr as u16) << 8;
         let slice = match mem_map::map_addr(addr) {
-            Addr::Rom(offset) => &self.cart[offset..],
+            Addr::Rom(offset) => &self.cart.rom[offset..],
             Addr::Ram(offset) => &self.ram[offset..],
             Addr::Vram(offset) => &self.ppu.vram[offset..],
-            Addr::Xram(offset) => &self.xram[offset..],
+            Addr::Xram(offset) => &self.cart.ram[offset..],
             Addr::Echo(offset) => &self.ram[offset..],
             _ => panic!("Can't DMA from addresses higher than 0xF100")
         };
         self.ppu.oam = slice.to_vec().into_boxed_slice();
     }
+
+    fn read_serial_control(&self) -> u8 {
+        let bit7 = match self.serial_transfer_start {
+            SerialTransfer::No => 0,
+            SerialTransfer::Start => 1 << 7
+        };
+        let bit1 = match self.serial_clock {
+            SerialClock::Normal => 0,
+            SerialClock::Fast => 1 << 1
+        };
+        let bit0 = match self.serial_shift_clock {
+            SerialShift::External => 0,
+            SerialShift::Internal => 1 << 0
+        };
+        bit7 | bit1 | bit0
+    }
+
+    fn write_serial_control(&mut self, value: u8) {
+        self.serial_transfer_start = match value >> 7 {
+            0 => SerialTransfer::No,
+            _ => SerialTransfer::Start
+        };
+        self.serial_clock = match value >> 1 & 1 {
+            0 => SerialClock::Normal,
+            _ => SerialClock::Fast
+        };
+        self.serial_shift_clock = match value & 1 {
+            0 => SerialShift::External,
+            _ => SerialShift::Internal
+        }
+    }
+}
+
+#[derive(Debug)]
+enum SerialTransfer {
+    No,
+    Start
+}
+
+#[derive(Debug)]
+enum SerialClock {
+    Normal,
+    Fast
+}
+
+#[derive(Debug)]
+enum SerialShift {
+    External,
+    Internal
 }

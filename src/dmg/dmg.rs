@@ -18,7 +18,9 @@ impl Dmg {
     pub fn step(&mut self) {
         let cycles = self.cpu.step(&mut self.interconnect);
         let int_cycles = self.proc_interrupts();
-        self.interconnect.step_ppu(cycles + int_cycles);
+        for _ in 0..(cycles + int_cycles) / 4 {
+            self.interconnect.step(4);
+        }
     }
 
     fn proc_interrupts(&mut self) -> usize {

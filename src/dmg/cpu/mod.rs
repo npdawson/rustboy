@@ -64,7 +64,7 @@ impl Cpu {
     }
 
     pub fn interrupt(&mut self, addr: u16, interconnect: &mut Interconnect) -> usize {
-        let cycles = 4;
+        let cycles = 16;
         self.last_t = cycles;
         self.clock_t += cycles;
         self.push(Reg16::PC, interconnect);
@@ -174,7 +174,7 @@ impl Cpu {
     }
 
     fn bit_hl(&mut self, bit: u8, interconnect: &mut Interconnect) {
-        self.last_t = 16;
+        self.last_t = 12;
         let addr = self.read_reg16(Reg16::HL);
         let value = interconnect.read_byte(addr);
         let result = value & (1 << bit) != 0;
@@ -476,6 +476,13 @@ impl Cpu {
             self.flag_reg.half = old & 0x0F < 1;
             self.flag_reg.carry = old < 1;
         }
+    }
+
+    fn set(&mut self, bit: u8, reg: Reg8) {
+        self.last_t = 8;
+        let old = self.read_reg(reg);
+        let result = old | (1 << bit);
+        self.write_reg(reg, result);
     }
 
     fn sub(&mut self, reg: Reg8) {
@@ -1002,6 +1009,8 @@ impl Cpu {
                     0xAF => self.res(5, Reg8::A),
 
                     0xBE => self.res_hl(7, interconnect),
+
+                    0xCF => self.set(1, Reg8::A),
 
                     _ => panic!("Unknown CB op: {:#X} at addr: {:#X}", op, pc - 1),
                 }
