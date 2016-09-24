@@ -20,7 +20,23 @@ const OAM_START: u16 = 0xFE00;
 const OAM_SIZE: u16 = 0xA0;
 const OAM_END: u16 = OAM_START + OAM_SIZE - 1;
 
+const UNUSED_START: u16 = 0xFEA0;
+const UNUSED_END: u16 = 0xFEFF;
+
+const SERIAL_DATA: u16 = 0xFF01;
+const SERIAL_CTRL: u16 = 0xFF02;
+const TIMER_MODULO: u16 = 0xFF06;
+const TIMER_CTRL: u16 = 0xFF07;
 const IFLAGS: u16 = 0xFF0F;
+
+const APU_CHAN1_WAVELENGTH: u16 = 0xFF11;
+const APU_CHAN1_ENVELOPE: u16 = 0xFF12;
+const APU_CHAN1_FREQ_LO: u16 = 0xFF13;
+const APU_CHAN1_FREQ_HI: u16 = 0xFF14;
+const APU_CHAN_CONTROL: u16 = 0xFF24;
+const APU_OUTPUT_SELECT: u16 = 0xFF25;
+const APU_SOUND_ON_REG: u16 = 0xFF26;
+
 const PPU_CONTROL_REG: u16 = 0xFF40;
 const PPU_STATUS_REG: u16 = 0xFF41;
 const PPU_SCROLL_Y: u16 = 0xFF42;
@@ -40,6 +56,8 @@ const HRAM_START: u16 = 0xFF80;
 const HRAM_SIZE: u16 = 0x007F;
 const HRAM_END: u16 = HRAM_START + HRAM_SIZE - 1;
 
+const IEREG: u16 = 0xFFFF;
+
 #[derive(Debug)]
 pub enum Addr {
     Rom(usize),
@@ -48,16 +66,17 @@ pub enum Addr {
     Ram(usize),
     Echo(usize),
     Oam(usize),
+    Unused,
     Hram(usize),
 
     // Joyp,           // FF00 P1 Joypad Input
-    // SerialData,     // FF01 SB
-    // SerialControl,  // FF02 SC
+    SerialData,     // FF01 SB
+    SerialControl,  // FF02 SC
 
     // TimerDivReg,    // FF04 DIV
     // TimerCounter,   // FF05 TIMA
-    // TimerModulo,    // FF06 TMA
-    // TimerControl,   // FF07 TAC
+    TimerModulo,    // FF06 TMA
+    TimerControl,   // FF07 TAC
 
     InterruptFlags, // FF0F IF
 
@@ -69,6 +88,11 @@ pub enum Addr {
 // NR12 FF12 VVVV APPP Starting volume, Envelope add mode, period
 // NR13 FF13 FFFF FFFF Frequency LSB
 // NR14 FF14 TL-- -FFF Trigger, Length enable, Frequency MSB
+
+    ApuChan1WaveLength, // FF11
+    ApuChan1Envelope,   // FF12
+    ApuChan1FreqLo,     // FF13
+    ApuChan1FreqHi,     // FF14
 
 //        Square 2
 //      FF15 ---- ---- Not used
@@ -95,6 +119,10 @@ pub enum Addr {
 // NR50 FF24 ALLL BRRR Vin L enable, Left vol, Vin R enable, Right vol
 // NR51 FF25 NW21 NW21 Left enables, Right enables
 // NR52 FF26 P--- NW21 Power control/status, Channel length statuses
+
+    ApuChanControl, // FF24
+    ApuOutputSelect, // FF25
+    ApuSoundOnReg, // FF26
 
 //        Not used
 //      FF27 ---- ----
@@ -143,6 +171,8 @@ pub enum Addr {
     // PCM amplitude, channels 1 and 2.
     // FF77 - Undocumented (00h) - (Read Only)
     // PCM amplitude, channels 3 and 4.
+    InterruptsEnable, // FFFF
+    FF7F
 }
 
 pub fn map_addr(addr: u16) -> Addr {
@@ -159,10 +189,24 @@ pub fn map_addr(addr: u16) -> Addr {
             Addr::Echo((addr - ECHO_START) as usize),
         OAM_START ... OAM_END =>
             Addr::Oam((addr - OAM_START) as usize),
+        UNUSED_START ... UNUSED_END => Addr::Unused,
         HRAM_START ... HRAM_END =>
             Addr::Hram((addr - HRAM_START) as usize),
 
+        SERIAL_DATA => Addr::SerialData,
+        SERIAL_CTRL => Addr::SerialControl,
+        TIMER_MODULO => Addr::TimerModulo,
+        TIMER_CTRL => Addr::TimerControl,
         IFLAGS => Addr::InterruptFlags,
+
+        APU_CHAN1_WAVELENGTH => Addr::ApuChan1WaveLength,
+        APU_CHAN1_ENVELOPE => Addr::ApuChan1Envelope,
+        APU_CHAN1_FREQ_LO => Addr::ApuChan1FreqLo,
+        APU_CHAN1_FREQ_HI => Addr::ApuChan1FreqHi,
+        APU_CHAN_CONTROL => Addr::ApuChanControl,
+        APU_OUTPUT_SELECT => Addr::ApuOutputSelect,
+        APU_SOUND_ON_REG => Addr::ApuSoundOnReg,
+
         PPU_CONTROL_REG => Addr::PpuControlReg,
         PPU_STATUS_REG => Addr::PpuStatusReg,
         PPU_SCROLL_Y => Addr::PpuScrollY,
@@ -178,6 +222,8 @@ pub fn map_addr(addr: u16) -> Addr {
 
         BOOTROM_DISABLE => Addr::BootromDisable,
         // CGB_RAM_BANK => Addr::CgbRamBank,
-        _ => panic!("Unknown address {:#x}", addr)
+        IEREG => Addr::InterruptsEnable,
+        0xFF7F => Addr::FF7F,
+        _ => panic!("Unrecognized address: {:#x}", addr)
     }
 }
