@@ -6,3 +6,4 @@ authors = ["Nathaniel P. Dawson <nathaniel.dawson@gmail.com>"]
 [dependencies]
 byteorder = "0.5.3"
 sdl2 = "0.23.0"
+nom = "1.2.4"

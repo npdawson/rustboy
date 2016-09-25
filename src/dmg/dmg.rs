@@ -15,9 +15,17 @@ impl Dmg {
         }
     }
 
+    pub fn cpu(&self) -> &Cpu {
+        &self.cpu
+    }
+
+    pub fn interconnect(&self) -> &Interconnect {
+        &self.interconnect
+    }
+
     pub fn step(&mut self) {
-        let cycles = self.cpu.step(&mut self.interconnect);
         let int_cycles = self.proc_interrupts();
+        let cycles = self.cpu.step(&mut self.interconnect);
         for _ in 0..(cycles + int_cycles) / 4 {
             self.interconnect.step(4);
         }

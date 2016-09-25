@@ -1,13 +1,17 @@
-use opcode;
+use super::Opcode;
 
-struct Instruction {
-    opcode: u8,
-    second: u8,
-    third: u8
+pub struct Instruction {
+    opcode: Opcode
 }
 
 impl Instruction {
-    pub fn opcode(&self) -> Opcode {
+    pub fn new(op: Opcode) -> Instruction {
+        Instruction {
+            opcode: op,
+        }
+    }
 
+    pub fn opcode(&self) -> Opcode {
+        self.opcode
     }
 }

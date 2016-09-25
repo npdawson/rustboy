@@ -1,9 +1,12 @@
 extern crate byteorder;
 extern crate sdl2;
+#[macro_use]
+extern crate nom;
 
 #[macro_use]
 mod events;
 mod dmg;
+mod debugger;
 
 use std::fs;
 use std::env;
