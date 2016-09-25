@@ -23,16 +23,28 @@ const OAM_END: u16 = OAM_START + OAM_SIZE - 1;
 const UNUSED_START: u16 = 0xFEA0;
 const UNUSED_END: u16 = 0xFEFF;
 
+const JOYPAD_REG: u16 = 0xFF00;
 const SERIAL_DATA: u16 = 0xFF01;
 const SERIAL_CTRL: u16 = 0xFF02;
 const TIMER_MODULO: u16 = 0xFF06;
 const TIMER_CTRL: u16 = 0xFF07;
 const IFLAGS: u16 = 0xFF0F;
 
+const APU_CHAN1_SWEEP: u16 = 0xFF10;
 const APU_CHAN1_WAVELENGTH: u16 = 0xFF11;
 const APU_CHAN1_ENVELOPE: u16 = 0xFF12;
 const APU_CHAN1_FREQ_LO: u16 = 0xFF13;
 const APU_CHAN1_FREQ_HI: u16 = 0xFF14;
+
+const APU_CHAN2_ENVELOPE: u16 = 0xFF17;
+const APU_CHAN2_FREQ_HI: u16 = 0xFF19;
+
+const APU_CHAN3_ENABLE: u16 = 0xFF1A;
+const APU_CHAN3_VOLUME: u16 = 0xFF1C;
+
+const APU_CHAN4_ENVELOPE: u16 = 0xFF21;
+const APU_CHAN4_COUNTER_CONSEC: u16 = 0xFF23;
+
 const APU_CHAN_CONTROL: u16 = 0xFF24;
 const APU_OUTPUT_SELECT: u16 = 0xFF25;
 const APU_SOUND_ON_REG: u16 = 0xFF26;
@@ -49,6 +61,7 @@ const PPU_OBJ0_PALETTE: u16 = 0xFF48;
 const PPU_OBJ1_PALETTE: u16 = 0xFF49;
 const PPU_WINDOW_Y: u16 = 0xFF4A;
 const PPU_WINDOW_X: u16 = 0xFF4B;
+const CGB_SPEED_SWITCH: u16 = 0xFF4D;
 const BOOTROM_DISABLE: u16 = 0xFF50;
 const CGB_RAM_BANK: u16 = 0xFF70;
 
@@ -69,7 +82,7 @@ pub enum Addr {
     Unused,
     Hram(usize),
 
-    // Joyp,           // FF00 P1 Joypad Input
+    JoypadReg,      // FF00 P1 Joypad Input
     SerialData,     // FF01 SB
     SerialControl,  // FF02 SC
 
@@ -89,6 +102,7 @@ pub enum Addr {
 // NR13 FF13 FFFF FFFF Frequency LSB
 // NR14 FF14 TL-- -FFF Trigger, Length enable, Frequency MSB
 
+    ApuChan1Sweep,
     ApuChan1WaveLength, // FF11
     ApuChan1Envelope,   // FF12
     ApuChan1FreqLo,     // FF13
@@ -101,6 +115,9 @@ pub enum Addr {
 // NR23 FF18 FFFF FFFF Frequency LSB
 // NR24 FF19 TL-- -FFF Trigger, Length enable, Frequency MSB
 
+    ApuChan2Envelope,
+    ApuChan2FreqHi,
+
 //        Wave
 // NR30 FF1A E--- ---- DAC power
 // NR31 FF1B LLLL LLLL Length load (256-L)
@@ -108,12 +125,18 @@ pub enum Addr {
 // NR33 FF1D FFFF FFFF Frequency LSB
 // NR34 FF1E TL-- -FFF Trigger, Length enable, Frequency MSB
 
+    ApuChan3Enable,
+    ApuChan3Volume,
+
 //        Noise
 //      FF1F ---- ---- Not used
 // NR41 FF20 --LL LLLL Length load (64-L)
 // NR42 FF21 VVVV APPP Starting volume, Envelope add mode, period
 // NR43 FF22 SSSS WDDD Clock shift, Width mode of LFSR, Divisor code
 // NR44 FF23 TL-- ---- Trigger, Length enable
+
+    ApuChan4Envelope,
+    ApuChan4CounterConsec,
 
 //        Control/Status
 // NR50 FF24 ALLL BRRR Vin L enable, Left vol, Vin R enable, Right vol
@@ -147,7 +170,7 @@ pub enum Addr {
     PpuWindowY,     // FF4A WY
     PpuWindowX,     // FF4B WX
 
-    // CgbKey1      // FFAD, cpu speed switch & status
+    CgbSpeedSwitch, // FFAD, cpu speed switch & status
     // PpuDestVramBank // FF4F
     BootromDisable,  // FF50
     // HDMA1         // FF51 (CGB only) New DMA Source, High
@@ -193,16 +216,28 @@ pub fn map_addr(addr: u16) -> Addr {
         HRAM_START ... HRAM_END =>
             Addr::Hram((addr - HRAM_START) as usize),
 
+        JOYPAD_REG => Addr::JoypadReg,
         SERIAL_DATA => Addr::SerialData,
         SERIAL_CTRL => Addr::SerialControl,
         TIMER_MODULO => Addr::TimerModulo,
         TIMER_CTRL => Addr::TimerControl,
         IFLAGS => Addr::InterruptFlags,
 
+        APU_CHAN1_SWEEP => Addr::ApuChan1Sweep,
         APU_CHAN1_WAVELENGTH => Addr::ApuChan1WaveLength,
         APU_CHAN1_ENVELOPE => Addr::ApuChan1Envelope,
         APU_CHAN1_FREQ_LO => Addr::ApuChan1FreqLo,
         APU_CHAN1_FREQ_HI => Addr::ApuChan1FreqHi,
+
+        APU_CHAN2_ENVELOPE => Addr::ApuChan2Envelope,
+        APU_CHAN2_FREQ_HI => Addr::ApuChan2FreqHi,
+
+        APU_CHAN3_ENABLE => Addr::ApuChan3Enable,
+        APU_CHAN3_VOLUME => Addr::ApuChan3Volume,
+
+        APU_CHAN4_ENVELOPE => Addr::ApuChan4Envelope,
+        APU_CHAN4_COUNTER_CONSEC => Addr::ApuChan4CounterConsec,
+
         APU_CHAN_CONTROL => Addr::ApuChanControl,
         APU_OUTPUT_SELECT => Addr::ApuOutputSelect,
         APU_SOUND_ON_REG => Addr::ApuSoundOnReg,
@@ -220,6 +255,7 @@ pub fn map_addr(addr: u16) -> Addr {
         PPU_WINDOW_Y => Addr::PpuWindowY,
         PPU_WINDOW_X => Addr::PpuWindowX,
 
+        CGB_SPEED_SWITCH => Addr::CgbSpeedSwitch,
         BOOTROM_DISABLE => Addr::BootromDisable,
         // CGB_RAM_BANK => Addr::CgbRamBank,
         IEREG => Addr::InterruptsEnable,
