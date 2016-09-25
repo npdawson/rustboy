@@ -53,10 +53,10 @@ impl Debugger {
         for _ in 0..count {
             let current_pc = self.dmg.cpu().current_pc();
             let addr = mem_map::map_addr(current_pc);
-            let instr = Instruction::new(match addr {
-                Rom(offset) => self.dmg.interconnect().read_byte(offset as u16),
-                _ => panic!("Debugger can't inspect address: {:?}", addr),
-            });
+            // let instr = Instruction::new(match addr {
+            //     Rom(offset) => self.dmg.interconnect().read_byte(offset as u16),
+            //     _ => panic!("Debugger can't inspect address: {:?}", addr),
+            // });
 
             // println!("{:018x}: {}", current_pc, instr);
 

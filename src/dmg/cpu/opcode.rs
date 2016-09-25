@@ -1,3 +1,4 @@
+#[derive(Copy, Clone)]
 pub enum Opcode {
     Ld(Operand8, Operand8),
     Ld16(Reg16, u16),
@@ -53,12 +54,14 @@ pub enum Opcode {
     Undefined(u8)
 }
 
+#[derive(Copy, Clone)]
 pub enum Operand8 {
     Register(Reg8),
     Immediate(u8),
     Memory(Addr)
 }
 
+#[derive(Copy, Clone)]
 pub enum Addr {
     BC,
     DE,
