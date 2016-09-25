@@ -81,16 +81,28 @@ impl Interconnect {
             Addr::Unused => 0xFF,
             Addr::Hram(offset) => self.hram[offset],
 
+            Addr::JoypadReg => 0, // TODO Joypad input
             Addr::SerialData => self.serial_byte, // TODO
             Addr::SerialControl => self.read_serial_control(),
             Addr::TimerModulo => self.timer.modulo,
             Addr::TimerControl => self.timer.read_timer_control(),
             Addr::InterruptFlags => self.iflags, // TODO
 
+            Addr::ApuChan1Sweep => self.apu.read_chan1_sweep(),
             Addr::ApuChan1WaveLength => self.apu.read_chan1_wavelength(),
             Addr::ApuChan1Envelope => self.apu.read_chan1_envelope(),
             Addr::ApuChan1FreqLo => panic!("0xFF13 is write-only!"),
             Addr::ApuChan1FreqHi => self.apu.read_chan1_freq_hi(),
+
+            Addr::ApuChan2Envelope => self.apu.read_chan2_envelope(),
+            Addr::ApuChan2FreqHi => self.apu.read_chan2_freq_hi(),
+
+            Addr::ApuChan3Enable => self.apu.read_chan3_enable(),
+            Addr::ApuChan3Volume => self.apu.read_chan3_volume(),
+
+            Addr::ApuChan4Envelope => self.apu.read_chan4_envelope(),
+            Addr::ApuChan4CounterConsec => self.apu.read_chan4_counter_consec(),
+
             Addr::ApuChanControl => self.apu.read_chan_control(),
             Addr::ApuOutputSelect => self.apu.output_select,
             Addr::ApuSoundOnReg => self.apu.read_sound_on_reg(),
@@ -108,6 +120,7 @@ impl Interconnect {
             Addr::PpuWindowY => self.ppu.wy,
             Addr::PpuWindowX => self.ppu.wx,
 
+            Addr::CgbSpeedSwitch => 0, // TODO CGB
             Addr::BootromDisable => if self.in_bootrom { 1 } else { 0 },
             // Addr::CgbRamBank => self.cgb_ram_bank,
             Addr::InterruptsEnable => self.ie_reg,
@@ -148,16 +161,28 @@ impl Interconnect {
             Addr::Unused => {},
             Addr::Hram(offset) => self.hram[offset] = value,
 
+            Addr::JoypadReg => {}, // TODO Joypad select
             Addr::SerialData => self.serial_byte = value, // TODO
             Addr::SerialControl => self.write_serial_control(value),
             Addr::TimerModulo => self.timer.modulo = value,
             Addr::TimerControl => self.timer.write_timer_control(value),
             Addr::InterruptFlags => {}, //TODO
 
+            Addr::ApuChan1Sweep => self.apu.write_chan1_sweep(value),
             Addr::ApuChan1WaveLength => self.apu.write_chan1_wavelength(value),
             Addr::ApuChan1Envelope => self.apu.write_chan1_envelope(value),
             Addr::ApuChan1FreqLo => self.apu.write_chan1_freq_lo(value),
             Addr::ApuChan1FreqHi => self.apu.write_chan1_freq_hi(value),
+
+            Addr::ApuChan2Envelope => self.apu.write_chan2_envelope(value),
+            Addr::ApuChan2FreqHi => self.apu.write_chan2_freq_hi(value),
+
+            Addr::ApuChan3Enable => self.apu.write_chan3_enable(value),
+            Addr::ApuChan3Volume => self.apu.write_chan3_enable(value),
+
+            Addr::ApuChan4Envelope => self.apu.write_chan4_envelope(value),
+            Addr::ApuChan4CounterConsec => self.apu.write_chan4_counter_consec(value),
+
             Addr::ApuChanControl => self.apu.write_chan_control(value),
             Addr::ApuOutputSelect => self.apu.output_select = value,
             Addr::ApuSoundOnReg => self.apu.write_sound_on_reg(value),
@@ -178,6 +203,7 @@ impl Interconnect {
             Addr::PpuWindowY => self.ppu.wy = value,
             Addr::PpuWindowX => self.ppu.wx = value,
 
+            Addr::CgbSpeedSwitch => {}, // TODO CGB
             Addr::BootromDisable => self.in_bootrom = false,
             Addr::InterruptsEnable => self.ie_reg = value,
             Addr::FF7F => {},
@@ -203,16 +229,41 @@ impl Interconnect {
     }
 
     pub fn step(&mut self, cycles: usize) {
+        // Vblank Interrupt
         if self.ppu.line == 144 {
             self.iflags |= 1 << 0;
         }
-        if self.ppu.line == self.ppu.lyc {
+
+        // LCD Stat Interrupts
+        let stat = self.ppu.read_lcd_stat();
+        let coincidence_int = stat >> 6 & 1 != 0;
+        let mode2_int = stat >> 5 & 1 != 0;
+        let mode1_int = stat >> 4 & 1 != 0;
+        let mode0_int = stat >> 3 & 1 != 0;
+        let coincidence = stat >> 2 & 1 != 0;
+        let mode = stat & 0b11;
+        if coincidence && coincidence_int {
             self.iflags |= 1 << 1;
         }
-        self.ppu.step(cycles);
+        match mode {
+            0b00 => if mode0_int {
+                self.iflags |= 1 << 1;
+            },
+            0b01 => if mode1_int {
+                self.iflags |= 1 << 1;
+            },
+            0b10 => if mode2_int {
+                self.iflags |= 1 << 1;
+            },
+            _ => {}
+        }
+
+        // Timer Interrupt
         if self.timer.step(cycles) {
             self.iflags |= 1 << 2;
         }
+
+        self.ppu.step(cycles);
     }
 
     fn dma(&mut self) {

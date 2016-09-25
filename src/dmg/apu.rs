@@ -1,5 +1,9 @@
 #[derive(Debug)]
 pub struct Apu {
+    channel1_sweep_time: u8,
+    channel1_sweep_direction: Sweep,
+    channel1_sweep_shift: u8,
+
     // FF11 NR11 Channel 1 Sound length/Wave pattern duty
     channel1_wave: WaveDuty,
     channel1_length: u8,
@@ -14,6 +18,22 @@ pub struct Apu {
     // FF14 NR14 Channel 1 Frequency Hi
     // bit 7 Initial (1 = restart sound)
     channel1_counter_consecutive: bool, // bit 6 (1 = stop output when length expires)
+
+    channel2_envelope_volume: u8,
+    channel2_envelope_direction: EnvDir,
+    channel2_envelope_sweeps: u8,
+
+    channel2_frequency: u16,
+    channel2_counter_consecutive: bool,
+
+    channel3_enable: bool,
+    channel3_volume: u8,
+
+    channel4_envelope_volume: u8,
+    channel4_envelope_direction: EnvDir,
+    channel4_envelope_sweeps: u8,
+
+    channel4_counter_consecutive: bool,
 
     // FF24 NR50 Channel Control
     so2_output_enable: bool,
@@ -35,6 +55,10 @@ pub struct Apu {
 impl Apu {
     pub fn new() -> Apu {
         Apu {
+            channel1_sweep_time: 0,
+            channel1_sweep_direction: Sweep::Inc,
+            channel1_sweep_shift: 0,
+
             channel1_wave: WaveDuty::Half,
             channel1_length: 0x3F,
 
@@ -44,6 +68,21 @@ impl Apu {
 
             channel1_frequency: 0x70,
             channel1_counter_consecutive: false,
+
+            channel2_envelope_volume: 0x0,
+            channel2_envelope_direction: EnvDir::Down,
+            channel2_envelope_sweeps: 0,
+
+            channel2_frequency: 0x70,
+            channel2_counter_consecutive: false,
+
+            channel3_enable: false,
+            channel3_volume: 0,
+
+            channel4_envelope_volume: 0,
+            channel4_envelope_direction: EnvDir::Down,
+            channel4_envelope_sweeps: 0,
+            channel4_counter_consecutive: false,
 
             so2_output_enable: false,
             so2_output_volume: 7,
@@ -58,6 +97,25 @@ impl Apu {
             sound_2_on: false,
             sound_1_on: true,
         }
+    }
+
+    pub fn read_chan1_sweep(&self) -> u8 {
+        let bits6to4 = self.channel1_sweep_time << 4;
+        let bit3 = match self.channel1_sweep_direction {
+            Sweep::Inc => 0,
+            Sweep::Dec => 1
+        };
+        bits6to4 | bit3 | (self.channel1_sweep_shift & 0b111)
+
+    }
+
+    pub fn write_chan1_sweep(&mut self, value: u8) {
+        self.channel1_sweep_time = value >> 4;
+        self.channel1_sweep_direction = match value >> 3 & 1 {
+            0 => Sweep::Inc,
+            _ => Sweep::Dec
+        };
+        self.channel1_sweep_shift = value & 0b111;
     }
 
     pub fn read_chan1_wavelength(&self) -> u8 {
@@ -112,8 +170,95 @@ impl Apu {
         if value >> 7 != 0 {
             self.sound_1_on = true;
         }
+        self.channel1_counter_consecutive = value >> 6 & 1 != 0;
         let freq_hi = ((value as u16) & 0b111) << 8;
         self.channel1_frequency = self.channel1_frequency & 0xF | freq_hi;
+    }
+
+    pub fn read_chan2_envelope(&self) -> u8 {
+        let direction = match self.channel2_envelope_direction {
+            EnvDir::Down => 0,
+            EnvDir::Up   => 1
+        };
+        self.channel2_envelope_volume << 4
+            | direction
+            | self.channel2_envelope_sweeps
+    }
+
+    pub fn write_chan2_envelope(&mut self, value: u8) {
+        self.channel2_envelope_volume = value >> 4;
+        self.channel2_envelope_direction = match value >> 3 & 1 {
+            0 => EnvDir::Down,
+            _ => EnvDir::Up
+        };
+        self.channel2_envelope_sweeps = value & 0b111;
+    }
+
+    pub fn read_chan2_freq_hi(&self) -> u8 {
+        if self.channel2_counter_consecutive { 1 << 6 } else { 0 }
+    }
+
+    pub fn write_chan2_freq_hi(&mut self, value: u8) {
+        if value >> 7 != 0 {
+            self.sound_2_on = true;
+        }
+        self.channel2_counter_consecutive = value >> 6 & 1 != 0;
+        let freq_hi = ((value as u16) & 0b111) << 8;
+        self.channel2_frequency = self.channel2_frequency & 0xF | freq_hi;
+    }
+
+    pub fn read_chan3_enable(&self) -> u8 {
+        if self.channel3_enable {
+            1 << 7
+        } else {
+            0
+        }
+    }
+
+    pub fn write_chan3_enable(&mut self, value: u8) {
+        self.channel3_enable = value >> 7 != 0;
+    }
+
+    pub fn read_chan3_volume(&self) -> u8 {
+        self.channel3_volume & 0b01100000
+    }
+
+    pub fn write_chan3_volume(&mut self, value: u8) {
+        self.channel3_volume = value & 0b01100000;
+    }
+
+    pub fn read_chan4_envelope(&self) -> u8 {
+        let direction = match self.channel4_envelope_direction {
+            EnvDir::Down => 0,
+            EnvDir::Up   => 1
+        };
+        self.channel4_envelope_volume << 4
+            | direction
+            | self.channel4_envelope_sweeps
+    }
+
+    pub fn write_chan4_envelope(&mut self, value: u8) {
+        self.channel4_envelope_volume = value >> 4;
+        self.channel4_envelope_direction = match value >> 3 & 1 {
+            0 => EnvDir::Down,
+            _ => EnvDir::Up
+        };
+        self.channel4_envelope_sweeps = value & 0b111;
+    }
+
+    pub fn read_chan4_counter_consec(&self) -> u8 {
+        if self.channel4_counter_consecutive {
+            1 << 6
+        } else {
+            0
+        }
+    }
+
+    pub fn write_chan4_counter_consec(&mut self, value: u8) {
+        if value >> 7 != 0 {
+            self.sound_4_on = true;
+        }
+        self.channel4_counter_consecutive = value >> 6 & 1 != 0;
     }
 
     pub fn read_chan_control(&self) -> u8 {
@@ -155,4 +300,10 @@ enum WaveDuty {
 enum EnvDir {
     Down,
     Up
+}
+
+#[derive(Debug)]
+enum Sweep {
+    Inc,
+    Dec
 }

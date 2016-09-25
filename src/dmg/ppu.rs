@@ -18,10 +18,14 @@ pub struct Ppu {
     // LY Compare
     pub lyc: u8,
     // LCD CTRL, make separate struct?
-    switchbg: bool,
-    bgmap: bool,
-    bgtile: bool,
-    switchlcd: bool,
+    bg_display: bool, // bit 0
+    obj_display: bool, // bit 1
+    obj_size: SpriteSize, // bit 2
+    bg_tilemap_select: Tilemap, // bit 3
+    bg_win_tileset_select: Tileset, // bit 4
+    win_display: bool, // bit 5
+    win_tilemap_select: Tilemap, // bit 6
+    lcd_enable: bool, // bit 7
     // LCD STAT, make separate struct?
     coincidence_int: bool,
     mode2oam_int: bool,
@@ -57,10 +61,14 @@ impl Ppu {
             mode1vblank_int: false,
             mode0hblank_int: false,
 
-            switchbg: true,  // bit 0
-            bgmap: false,    // bit 3
-            bgtile: true,    // bit 4
-            switchlcd: true, // bit 7
+            bg_display: true,  // bit 0
+            obj_display: true,
+            obj_size: SpriteSize::Normal,
+            bg_tilemap_select: Tilemap::Map0,    // bit 3
+            bg_win_tileset_select: Tileset::Set0,    // bit 4
+            win_display: true,
+            win_tilemap_select: Tilemap::Map0,
+            lcd_enable: true, // bit 7
 
             scy: 0,
             scx: 0,
@@ -184,18 +192,54 @@ impl Ppu {
     }
 
     pub fn read_lcd_ctrl(&self) -> u8 {
-        let bit0 = if self.switchbg  { 0x01 } else { 0x00 };
-        let bit3 = if self.bgmap     { 0x08 } else { 0x00 };
-        let bit4 = if self.bgtile    { 0x10 } else { 0x00 };
-        let bit7 = if self.switchlcd { 0x80 } else { 0x00 };
-        bit0 | bit3 | bit4 | bit7
+        let bit0 = if self.bg_display  { 1 << 0 } else { 0 };
+        let bit1 = if self.obj_display { 1 << 1 } else { 0 };
+        let bit2 = match self.obj_size {
+            SpriteSize::Normal => 1 << 2,
+            SpriteSize::DblHeight => 0
+        };
+        let bit3 = match self.bg_tilemap_select {
+            Tilemap::Map1 => 1 << 3,
+            Tilemap::Map0 => 0
+        };
+        let bit4 = match self.bg_win_tileset_select {
+            Tileset::Set0 => 1 << 4,
+            Tileset::Set1 => 0
+        };
+        let bit5 = if self.win_display { 1 << 5 } else { 0 };
+        let bit6 = match self.win_tilemap_select {
+            Tilemap::Map1 => 1 << 6,
+            Tilemap::Map0 => 0
+        };
+        let bit7 = if self.lcd_enable { 1 << 7 } else { 0 };
+        bit0 | bit1 | bit2| bit3 | bit4 | bit5 | bit6 | bit7
     }
 
     pub fn write_lcd_ctrl(&mut self, value: u8) {
-        self.switchbg  = value & (1 << 0) != 0;
-        self.bgmap     = value & (1 << 3) != 0;
-        self.bgtile    = value & (1 << 4) != 0;
-        self.switchlcd = value & (1 << 4) != 0;
+        self.bg_display  = value & (1 << 0) != 0;
+        self.obj_display = value & (1 << 1) != 0;
+        self.obj_size = if value & (1 << 2) != 0 {
+            SpriteSize::DblHeight
+        } else {
+            SpriteSize::Normal
+        };
+        self.bg_tilemap_select = if value & (1 << 3) != 0 {
+            Tilemap::Map1
+        } else {
+            Tilemap::Map0
+        };
+        self.bg_win_tileset_select = if value & (1 << 4) != 0 {
+            Tileset::Set0
+        } else {
+            Tileset::Set1
+        };
+        self.win_display = value & (1 << 5) != 0;
+        self.win_tilemap_select = if value & (1 << 6) != 0 {
+            Tilemap::Map1
+        } else {
+            Tilemap::Map0
+        };
+        self.lcd_enable = value & (1 << 7) != 0;
     }
 
     pub fn read_lcd_stat(&self) -> u8 {
@@ -221,30 +265,37 @@ impl Ppu {
 
     fn renderscan(&mut self) {
         // VRAM offset for map
-        let mut map_offset: usize = if self.bgmap { 0x1C00 } else { 0x1800 };
+        let mut map_offset: usize = match self.bg_tilemap_select {
+            Tilemap::Map0 => 0x1800,
+            Tilemap::Map1 => 0x1C00
+        };
         // which line of tiles to use in the map
-        map_offset += (((self.line as usize) + (self.scy as usize)) & 0xFF) >> 3;
+        map_offset += (self.scy.wrapping_add(self.line) >> 3) as usize;
         // which tile to start with in the map line
-        let mut line_offset: usize = (self.scx as usize) >> 3;
+        let mut line_offset: usize = (self.scx >> 3) as usize;
         // which line of pixels to use in the tiles
-        let y = (self.line + self.scy) & 0b111;
+        let y = (self.scy.wrapping_add(self.line)) & 0b111;
         // where in the tile line to start
         let mut x = self.scx & 0b111;
         // where to render in the buffer
         let mut fb_offset = (self.line as usize) * 160;
-        // read tile index from bgmap
+        // read tile index from bg_tilemap_select
         // let color;
         let mut tile = self.vram[map_offset + line_offset] as usize;
         // if tile data set in use is #1,
         // indices are signed; calculate real offset
-        if self.bgtile && tile < 128 { tile += 256 }
+        if let Tileset::Set0 = self.bg_win_tileset_select {
+            if tile < 128 {
+                tile += 256;
+            }
+        }
 
         for i in 0..160 {
             // remap the tile pixel through the palette
             //color = self.pal[self.tileset[tile][y][x]];
 
             // plot the pixel to the buffer
-            // self.fb[fb_offset] = 0;//color;
+            // self.fb[fb_offset] = color;
             fb_offset += 1;
 
             // when this tile ends, read another
@@ -253,9 +304,25 @@ impl Ppu {
                 x = 0;
                 line_offset = (line_offset + 1) & 0x1F;
                 tile = self.vram[map_offset + line_offset] as usize;
-                if self.bgtile && tile < 128 { tile += 256 };
+                if let Tileset::Set0 = self.bg_win_tileset_select {
+                    if tile < 128 {
+                        tile += 256;
+                    }
+                }
             }
         }
+    }
+
+    fn draw_bg(&mut self) {
+
+    }
+
+    fn draw_win(&mut self) {
+
+    }
+
+    fn draw_sprites(&mut self) {
+
     }
 }
 
@@ -277,4 +344,22 @@ enum Mode {
     Vram,   // 3
     Hblank, // 0
     Vblank  // 1
+}
+
+#[derive(Debug)]
+enum Tileset {
+    Set0, // 0x8000-0x8FFF
+    Set1, // 0x8800-0x97FF
+}
+
+#[derive(Debug)]
+enum Tilemap {
+    Map0, // 0x9800-0x9BFF
+    Map1  // 0x9C00-0x9FFF
+}
+
+#[derive(Debug)]
+enum SpriteSize {
+    Normal, // 8x8
+    DblHeight // 8x16
 }
