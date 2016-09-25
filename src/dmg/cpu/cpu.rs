@@ -78,7 +78,7 @@ impl Cpu {
     }
 
     pub fn interrupt(&mut self, addr: u16, interconnect: &mut Interconnect) -> usize {
-        if self.reg_pc <= 0x100 { return 0; }
+        self.ime = false;
         let cycles = 16;
         self.last_t = cycles;
         self.clock_t += cycles;

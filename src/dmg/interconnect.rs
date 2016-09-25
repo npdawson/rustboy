@@ -230,8 +230,9 @@ impl Interconnect {
 
     pub fn step(&mut self, cycles: usize) {
         // Vblank Interrupt
-        if self.ppu.line == 144 {
+        if self.ppu.line == 144 && self.ppu.enter_vblank {
             self.iflags |= 1 << 0;
+            self.ppu.enter_vblank = false;
         }
 
         // LCD Stat Interrupts

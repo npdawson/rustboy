@@ -15,6 +15,7 @@ pub struct Ppu {
     mode: Mode,
     modeclock: usize,
     pub line: u8, // LY: 160 lines
+    pub enter_vblank: bool,
     // LY Compare
     pub lyc: u8,
     // LCD CTRL, make separate struct?
@@ -54,6 +55,7 @@ impl Ppu {
             mode: Mode::Oam,
             modeclock: 0,
             line: 0,
+            enter_vblank: false,
             lyc: 0,
 
             coincidence_int: false,
@@ -103,9 +105,10 @@ impl Ppu {
                 if self.modeclock >= 204 {
                     self.modeclock = 0;
                     self.line += 1;
-                    if self.line == 143 {
+                    if self.line == 144 {
+                        self.enter_vblank = true;
                         self.mode = Mode::Vblank;
-                        // update framebuffer
+                        // TODO update framebuffer
                     } else {
                         self.mode = Mode::Oam;
                     }
@@ -115,7 +118,7 @@ impl Ppu {
                 if self.modeclock >= 456 {
                     self.modeclock = 0;
                     self.line += 1;
-                    if self.line > 153 {
+                    if self.line == 153 {
                         self.mode = Mode::Oam;
                         self.line = 0;
                     }
