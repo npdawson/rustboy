@@ -12,6 +12,7 @@ use std::fs;
 use std::env;
 use std::io::Read;
 use std::path::Path;
+use sdl2::pixels::PixelFormatEnum;
 
 struct_events!{
     keyboard: {
@@ -37,6 +38,8 @@ fn main() {
     let mut renderer = window.renderer()
         .accelerated()
         .build().unwrap();
+    let mut texture = renderer.create_texture_streaming(
+        PixelFormatEnum::RGB24, 160, 144).unwrap();
 
     let boot_file_name = env::args().nth(1).unwrap();
     let rom_file_name = env::args().nth(2).unwrap();
@@ -57,7 +60,17 @@ fn main() {
 
         dmg.step();
 
+        texture.with_lock(None, |buffer: &mut [u8], pitch: usize| {
+            for i in 0..(160 * 144) {
+                let offset = i * 3;
+                buffer[offset] = dmg.framebuffer()[i].red();
+                buffer[offset + 1] = dmg.framebuffer()[i].green();
+                buffer[offset + 2] = dmg.framebuffer()[i].blue();
+            }
+        }).unwrap();
+
         renderer.clear();
+        renderer.copy(&texture, None, None);
         renderer.present();
     }
 }
@@ -68,3 +81,50 @@ fn read_bin<P: AsRef<Path>>(path: P) -> Box<[u8]> {
     file.read_to_end(&mut file_buf).unwrap();
     file_buf.into_boxed_slice()
 }
+
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum Color {
+    Off,
+    Light,
+    Dark,
+    On
+}
+
+impl Color {
+    pub fn from_u8(value: u8) -> Color {
+        use self::Color::*;
+        match value {
+            1 => Light,
+            2 => Dark,
+            3 => On,
+            _ => Off
+        }
+    }
+
+    pub fn red(&self) -> u8 {
+        match *self {
+            Color::Off => 156,
+            Color::Light => 140,
+            Color::Dark => 48,
+            Color::On => 15
+        }
+    }
+
+    pub fn green(&self) -> u8 {
+        match *self {
+            Color::Off => 189,
+            Color::Light => 173,
+            Color::Dark => 98,
+            Color::On => 56
+        }
+    }
+
+    pub fn blue(&self) -> u8 {
+        match *self {
+            Color::Off => 15,
+            Color::Light => 15,
+            Color::Dark => 48,
+            Color::On => 15
+        }
+    }
+ }

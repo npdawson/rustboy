@@ -3,15 +3,19 @@
 // const LGRAY: [u8; 4] = [192, 192, 192, 255];
 // const DGRAY: [u8; 4] = [ 96,  96,  96, 255];
 // const BLACK: [u8; 4] = [  0,   0,   0, 255];
+const SCREEN_WIDTH: usize = 160;
+const SCREEN_HEIGHT: usize = 144;
+const SCREEN_AREA: usize = SCREEN_WIDTH * SCREEN_HEIGHT;
 
 use byteorder::{ByteOrder, LittleEndian};
+use Color;
 
 #[derive(Debug)]
 pub struct Ppu {
     pub vram: Box<[u8]>,
     pub oam: Box<[u8]>,
 
-    // fb: Box<[u32]>,
+    fb: Box<[Color]>,
     mode: Mode,
     modeclock: usize,
     pub line: u8, // LY: 160 lines
@@ -43,10 +47,10 @@ pub struct Ppu {
     pub wy: u8,
     pub wx: u8,
     // background palette
-    pub bgp: u8,
+    bgp: Palette,
     // Object palettes
-    pub obp0: u8,
-    pub obp1: u8,
+    obp0: Palette,
+    obp1: Palette,
 }
 
 impl Ppu {
@@ -55,7 +59,7 @@ impl Ppu {
             vram: vec![0; 0x2000].into_boxed_slice(),
             oam: vec![0; 0xA0].into_boxed_slice(),
 
-            // fb: vec![0xFF; FB_SIZE], // initialize to white screen
+            fb: vec![Color::Off; SCREEN_AREA].into_boxed_slice(),
             mode: Mode::Oam,
             modeclock: 0,
             line: 0,
@@ -87,13 +91,20 @@ impl Ppu {
             wx: 0,
 
             // perhaps store these as single bytes, then convert to RGBA when needed
-            bgp:  0xFC,
-            obp0: 0x00,
-            obp1: 0x00,
+            bgp: Palette::new(),
+            obp0: Palette::new(),
+            obp1: Palette::new(),
         }
     }
 
+    pub fn framebuffer(&self) -> &Box<[Color]> {
+        &self.fb
+    }
+
     pub fn step(&mut self, last_t: usize) {
+        if !self.lcd_enable {
+            return;
+        }
         self.modeclock += last_t;
         match self.mode {
             Mode::Oam => {
@@ -107,7 +118,7 @@ impl Ppu {
                     self.modeclock = 0;
                     self.enter_mode0 = true;
                     self.mode = Mode::Hblank;
-                    self.renderscan();
+                    self.draw_line();
                 }
             }
             Mode::Hblank => {
@@ -118,7 +129,6 @@ impl Ppu {
                         self.enter_vblank = true;
                         self.enter_mode1 = true;
                         self.mode = Mode::Vblank;
-                        // TODO update framebuffer
                     } else {
                         self.enter_mode2 = true;
                         self.mode = Mode::Oam;
@@ -138,41 +148,6 @@ impl Ppu {
             }
         }
     }
-
-    // pub fn read_byte(&self, addr: u16) -> u8 {
-    //     match addr {
-    //         0xFF40 => self.read_lcd_ctrl(), // LCD Control Reg
-    //         0xFF41 => self.read_lcd_stat(),
-    //         0xFF42 => self.scy,
-    //         0xFF43 => self.scx,
-    //         0xFF44 => self.line, // current scanline
-    //         0xFF45 => self.lyc,
-    //         0xFF47 => panic!("Background Palette is Write-Only!"), // TODO
-    //         0xFF48 => panic!("Object Palette 0 is Write-Only!"), // TODO
-    //         0xFF49 => panic!("Object Palette 1 is Write-Only!"), // TODO
-    //         0xFF4A => self.wy,
-    //         0xFF4B => self.wx,
-    //         _ => panic!("Reading from PPU IOReg {:#X} not yet implemented!", addr)
-    //     }
-    // }
-
-    // pub fn write_byte(&mut self, addr: u16, value: u8) {
-    //     match addr {
-    //         0xFF40 => self.write_lcd_ctrl(value),
-    //         0xFF41 => self.write_lcd_stat(value),
-    //         0xFF42 => self.scy = value,
-    //         0xFF43 => self.scx = value,
-    //         0xFF44 => println!("Can't write to 0xFF44."),
-    //         0xFF45 => self.lyc = value,
-    //         0xFF47 => self.bgp = value, // BG Palette
-    //         0xFF48 => self.obp0 = value, // Object Palette 0
-    //         0xFF49 => self.obp1 = value, // Object Palette 0
-    //         0xFF4A => self.wy = value,
-    //         0xFF4B => self.wx = value,
-    //         0xFF7F => println!("oopsy! 0xFF7F"),
-    //         _ => panic!("Writing to PPU IOReg {:#X} not yet implemented!", addr)
-    //     }
-    // }
 
     pub fn read_vram(&self, addr: usize) -> u8 {
         self.vram[addr]
@@ -286,80 +261,149 @@ impl Ppu {
         self.mode0hblank_int = value & (1 << 3) != 0;
     }
 
-    fn renderscan(&mut self) {
-        // VRAM offset for map
-        let mut map_offset: usize = match self.bg_tilemap_select {
+    pub fn write_bg_palette(&mut self, value: u8) {
+        self.bgp.set(value);
+    }
+
+    pub fn write_obj0_palette(&mut self, value: u8) {
+        self.obp0.set(value);
+    }
+
+    pub fn write_obj1_palette(&mut self, value: u8) {
+        self.obp1.set(value);
+    }
+
+    fn draw_line(&mut self) {
+        let slice_start = (self.line as usize) * SCREEN_WIDTH;
+        let slice_end = slice_start + SCREEN_WIDTH;
+        let pixels = &mut self.fb[slice_start .. slice_end];
+        let mut bg_priority = [false; SCREEN_WIDTH];
+
+        let map_offset: usize = match self.bg_tilemap_select {
             Tilemap::Map0 => 0x1800,
             Tilemap::Map1 => 0x1C00
         };
-        // which line of tiles to use in the map
-        map_offset += (self.scy.wrapping_add(self.line) >> 3) as usize;
-        // which tile to start with in the map line
-        let mut line_offset: usize = (self.scx >> 3) as usize;
-        // which line of pixels to use in the tiles
-        let y = (self.scy.wrapping_add(self.line)) & 0b111;
-        // where in the tile line to start
-        let mut x = self.scx & 0b111;
-        // where to render in the buffer
-        let mut fb_offset = (self.line as usize) * 160;
-        // read tile index from bg_tilemap_select
-        // let color;
-        let mut tile = self.vram[map_offset + line_offset] as usize;
-        // if tile data set in use is #1,
-        // indices are signed; calculate real offset
-        if let Tileset::Set0 = self.bg_win_tileset_select {
-            if tile < 128 {
-                tile += 256;
+
+        if self.bg_display {
+            let y = self.line.wrapping_add(self.scy);
+            let row = (y >> 3) as usize;
+            for i in 0..SCREEN_WIDTH {
+                let x = (i as u8).wrapping_add(self.scx);
+                let col = (x >> 3) as usize;
+                let raw_tile_num = self.vram[map_offset + (row * 32 + col)];
+
+                let tile_num =
+                    if let Tileset::Set1 = self.bg_win_tileset_select {
+                        raw_tile_num as usize
+                    } else if raw_tile_num < 128 {
+                        128 + ((raw_tile_num as i8 as i16) + 128) as usize
+                    } else {
+                        raw_tile_num as usize
+                    };
+
+                let line = (y % 8) * 2;
+                let data1 = self.vram[tile_num + line as usize];
+                let data2 = self.vram[tile_num + line as usize + 1];
+
+                let bit = (x % 8).wrapping_sub(7).wrapping_mul(0xFF) as usize;
+                let color_value = ((data2 >> bit) << 1) & 2
+                    | ((data1 >> bit) & 1);
+                let raw_color = Color::from_u8(color_value);
+                let color = self.bgp.get(&raw_color);
+                bg_priority[i] = raw_color != Color::Off;
+                pixels[i] = color;
             }
         }
+        if self.win_display && self.wy <= self.line {
+            let window_x = self.wx.wrapping_sub(7);
+            let y = self.line - self.wy;
+            let row = (y / 8) as usize;
+            for i in (window_x as usize)..SCREEN_WIDTH {
+                let mut x = (i as u8).wrapping_add(self.scx);
+                if x >= window_x {
+                    x = i as u8 - window_x;
+                }
+                let col = (x / 8) as usize;
+                let raw_tile_num = self.vram[map_offset + (row * 32 + col)];
 
-        for i in 0..160 {
-            // remap the tile pixel through the palette
-            //color = self.pal[self.tileset[tile][y][x]];
+                let tile_num =
+                    if let Tileset::Set1 = self.bg_win_tileset_select {
+                        raw_tile_num as usize
+                    } else if raw_tile_num < 128 {
+                        128 + ((raw_tile_num as i8 as i16) + 128) as usize
+                    } else {
+                        raw_tile_num as usize
+                    };
 
-            // plot the pixel to the buffer
-            // self.fb[fb_offset] = color;
-            fb_offset += 1;
+                let line = (y % 8) * 2;
+                let data1 = self.vram[tile_num + line as usize];
+                let data2 = self.vram[tile_num + line as usize + 1];
 
-            // when this tile ends, read another
-            x += 1;
-            if x == 8 {
-                x = 0;
-                line_offset = (line_offset + 1) & 0x1F;
-                tile = self.vram[map_offset + line_offset] as usize;
-                if let Tileset::Set0 = self.bg_win_tileset_select {
-                    if tile < 128 {
-                        tile += 256;
+                let bit = (x % 8).wrapping_sub(7).wrapping_mul(0xFF) as usize;
+                let color_value = ((data2 >> bit) << 1) & 2
+                    | ((data1 >> bit) & 1);
+                let raw_color = Color::from_u8(color_value);
+                let color = self.bgp.get(&raw_color);
+                bg_priority[i] = raw_color != Color::Off;
+                pixels[i] = color;
+            }
+        }
+        if self.obj_display {
+            let size = match self.obj_size {
+                SpriteSize::Normal => 8,
+                SpriteSize::DblHeight => 16
+            };
+
+            let current_line = self.line;
+            for i in 0..0x28 {
+                let offset = i * 4;
+                let sprite_y = self.oam[offset];
+                let sprite_x = self.oam[offset + 1];
+                let mut tile_num = self.oam[offset + 2] as usize;
+                let flags = self.oam[offset + 3];
+
+                let palette = match flags >> 4 & 1 {
+                    0 => &self.obp0,
+                    _ => &self.obp1
+                };
+                let mut line = if flags >> 6 & 1 != 0 {
+                    size - current_line.wrapping_sub(sprite_y) - 1
+                } else {
+                    current_line.wrapping_sub(sprite_y)
+                };
+                if line >= 8 {
+                    tile_num += 1;
+                    line -= 8;
+                }
+                line *= 2;
+                // let tile = self.vram[tile_num];
+                let data1 = self.vram[tile_num + line as usize];
+                let data2 = self.vram[tile_num + line as usize + 1];
+
+                for x in (0..8).rev() {
+                    let bit =
+                        if flags >> 5 & 1 != 0 {
+                            7 - x
+                        } else {
+                            x
+                        } as usize;
+                    let color_value = ((data2 >> bit) << 1) & 2
+                        | ((data1 >> bit) & 1);
+                    let raw_color = Color::from_u8(color_value);
+                    let color = palette.get(&raw_color);
+                    let target_x = sprite_x.wrapping_add(7 - x);
+                    if target_x < SCREEN_WIDTH as u8
+                        && raw_color != Color::Off
+                    {
+                        if flags >> 7 == 0 || !bg_priority[target_x as usize] {
+                            pixels[target_x as usize] = color;
+                        }
                     }
                 }
             }
         }
     }
-
-    fn draw_bg(&mut self) {
-
-    }
-
-    fn draw_win(&mut self) {
-
-    }
-
-    fn draw_sprites(&mut self) {
-
-    }
 }
-
-// fn set_palette(pal: &mut Vec<Vec<u8>>, value: u8) {
-//     for i in 0..4 {
-//         pal[i] = match (value >> (i * 2)) & 0b11 {
-//             0 => WHITE.to_vec(),
-//             1 => LGRAY.to_vec(),
-//             2 => DGRAY.to_vec(),
-//             3 => BLACK.to_vec(),
-//             _ => unreachable!()
-//         }
-//     }
-// }
 
 #[derive(Debug)]
 enum Mode {
@@ -385,4 +429,39 @@ enum Tilemap {
 enum SpriteSize {
     Normal, // 8x8
     DblHeight // 8x16
+}
+
+#[derive(Debug)]
+struct Palette {
+    off: Color,
+    light: Color,
+    dark: Color,
+    on: Color
+}
+
+impl Palette {
+    fn new() -> Palette {
+        Palette {
+            off: Color::On,
+            light: Color::On,
+            dark: Color::On,
+            on: Color::On,
+        }
+    }
+
+    fn get(&self, color: &Color) -> Color {
+        match *color {
+            Color::Off => self.off,
+            Color::Light => self.light,
+            Color::Dark => self.dark,
+            Color::On => self.on
+        }
+    }
+
+    fn set(&mut self, value: u8) {
+        self.off = Color::from_u8((value >> 0) & 0b11);
+        self.light = Color::from_u8((value >> 2) & 0b11);
+        self.dark = Color::from_u8((value >> 4) & 0b11);
+        self.on = Color::from_u8((value >> 6) & 0b11);
+    }
 }

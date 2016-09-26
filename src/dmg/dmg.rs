@@ -1,5 +1,6 @@
 use dmg::cpu::Cpu;
 use dmg::interconnect::Interconnect;
+use Color;
 
 #[derive(Debug)]
 pub struct Dmg {
@@ -17,6 +18,10 @@ impl Dmg {
 
     pub fn cpu(&self) -> &Cpu {
         &self.cpu
+    }
+
+    pub fn framebuffer(&self) -> &Box<[Color]> {
+        self.interconnect.framebuffer()
     }
 
     pub fn interconnect(&self) -> &Interconnect {
