@@ -274,15 +274,15 @@ impl Cpu {
 
     fn daa(&mut self) {
         // decimal adjust accumulator
-        // TODO check this over
         self.last_t = 4;
+        let old = self.reg_a;
         let mut value = 0u8;
         if !self.flag_reg.sub {
-            if self.flag_reg.half || (self.reg_a & 0xF) > 9 {
-                value += 0x06;
+            if self.flag_reg.half || (old & 0xF) > 9 {
+                value = value.wrapping_add(0x06);
             }
-            if self.flag_reg.carry || (self.reg_a > 0x9F) {
-                value += 0x60;
+            if self.flag_reg.carry || (old > 0x9F) {
+                value = value.wrapping_add(0x60);
             }
         } else {
             if self.flag_reg.half {
@@ -292,12 +292,12 @@ impl Cpu {
                 value = value.wrapping_sub(0x60);
             }
         };
-        let old = self.reg_a;
         let result = old.wrapping_add(value);
         self.reg_a = result;
         self.flag_reg.zero = result == 0;
         self.flag_reg.half = false;
-        self.flag_reg.carry = ((old as u16) + (value as u16)) & 0x100 == 0x100;
+        self.flag_reg.carry =
+            (old as u16).wrapping_add(value as u16) & 0x100 == 0x100;
     }
 
     fn dec8(&mut self, reg: Reg8) {
@@ -590,7 +590,7 @@ impl Cpu {
         self.flag_reg.zero = result == 0;
         self.flag_reg.sub = false;
         self.flag_reg.half = false;
-        self.flag_reg.carry = value & (1 << 0) != 0;
+        self.flag_reg.carry = value & 1 != 0;
     }
 
     fn rr_hl(&mut self, interconnect: &mut Interconnect) {
@@ -615,22 +615,24 @@ impl Cpu {
     fn rrc(&mut self, reg: Reg8) {
         self.last_t = 8;
         let old = self.read_reg(reg);
-        self.flag_reg.carry = old & 1 != 0;
         let result = old.rotate_right(1);
         self.write_reg(reg, result);
         self.flag_reg.zero = result == 0;
+        self.flag_reg.sub = false;
+        self.flag_reg.half = false;
+        self.flag_reg.carry = old & 1 != 0;
     }
 
     fn rrc_hl(&mut self, interconnect: &mut Interconnect) {
         self.last_t = 16;
         let addr = self.read_reg16(Reg16::HL);
         let old = interconnect.read_byte(addr);
-        self.flag_reg.carry = old & 1 != 0;
         let result = old.rotate_right(1);
         interconnect.write_byte(addr, result);
         self.flag_reg.zero = result == 0;
         self.flag_reg.sub = false;
         self.flag_reg.half = false;
+        self.flag_reg.carry = old & 1 != 0;
     }
 
     fn rrca(&mut self) {
@@ -865,7 +867,7 @@ impl Cpu {
     fn xor_hl(&mut self, interconnect: &mut Interconnect) {
         self.last_t = 8;
         let addr = self.read_reg16(Reg16::HL);
-        let value = self.read_byte(interconnect, addr);
+        let value = interconnect.read_byte(addr);
         let result = self.reg_a ^ value;
         self.reg_a = result;
         self.flag_reg.zero = result == 0x00;

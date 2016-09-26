@@ -20,7 +20,7 @@ pub struct Interconnect {
     ram: Box<[u8]>,
     hram: Box<[u8]>,
 
-    io_regs: Box<[u8]>, // TODO separate into other modules
+    // io_regs: Box<[u8]>, // TODO separate into other modules
     serial_byte: u8,
     serial_transfer_start: SerialTransfer,
     serial_clock: SerialClock,
@@ -46,12 +46,12 @@ impl Interconnect {
             ram: vec![0; RAM_SIZE].into_boxed_slice(),
             hram: vec![0; 128].into_boxed_slice(),
 
-            io_regs: vec![0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //0xFF00
-                          0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                          0x80, 0xBF, 0xF3, 0x00, 0xBF, 0x00, 0x3F, 0x00, //0xFF10
-                          0x00, 0xBF, 0x7F, 0xFF, 0x9F, 0x00, 0xBF, 0x00,
-                          0xFF, 0x00, 0x00, 0xBF, 0x77, 0xF3, 0xF1, 0x00] //0xFF20
-                .into_boxed_slice(),
+            // io_regs: vec![0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //0xFF00
+            //               0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            //               0x80, 0xBF, 0xF3, 0x00, 0xBF, 0x00, 0x3F, 0x00, //0xFF10
+            //               0x00, 0xBF, 0x7F, 0xFF, 0x9F, 0x00, 0xBF, 0x00,
+            //               0xFF, 0x00, 0x00, 0xBF, 0x77, 0xF3, 0xF1, 0x00] //0xFF20
+            //     .into_boxed_slice(),
             serial_byte: 0,
             serial_transfer_start: SerialTransfer::No,
             serial_clock: SerialClock::Normal,
@@ -177,7 +177,7 @@ impl Interconnect {
             Addr::TimerCounter => self.timer.write_counter(value),
             Addr::TimerModulo => self.timer.modulo = value,
             Addr::TimerControl => self.timer.write_timer_control(value),
-            Addr::InterruptFlags => {}, //TODO
+            Addr::InterruptFlags => self.iflags = value, //TODO
 
             Addr::ApuChan1Sweep => self.apu.write_chan1_sweep(value),
             Addr::ApuChan1WaveLength => self.apu.write_chan1_wavelength(value),

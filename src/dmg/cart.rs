@@ -176,9 +176,7 @@ impl Header {
             0x5 => RomSize::Rom64Banks,
             0x6 => RomSize::Rom128Banks,
             0x7 => RomSize::Rom256Banks,
-            0x52 => RomSize::Rom72Banks,
-            0x53 => RomSize::Rom80Banks,
-            0x54 => RomSize::Rom96Banks,
+            0x8 => RomSize::Rom512Banks,
             _ => panic!("Unknown Rom size in header: {:#x}", rom[0x148])
         };
         let ram_size = match rom[0x149] {
@@ -233,9 +231,7 @@ enum RomSize {
     Rom64Banks,
     Rom128Banks,
     Rom256Banks,
-    Rom72Banks,
-    Rom80Banks,
-    Rom96Banks
+    Rom512Banks,
 }
 
 #[derive(Debug)]
