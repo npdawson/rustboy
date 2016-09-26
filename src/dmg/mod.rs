@@ -1,6 +1,6 @@
 mod dmg;
 pub mod cpu;
-mod ppu;
+pub mod ppu;
 pub mod mem_map;
 mod interconnect;
 mod cart;

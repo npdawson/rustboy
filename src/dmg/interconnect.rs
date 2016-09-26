@@ -4,6 +4,7 @@ use byteorder::{LittleEndian, ByteOrder};
 
 use dmg::{Cart, Ppu, Apu, Timer}; // TODO more periphs?
 use dmg::mem_map::{self, Addr};
+use Color;
 
 const RAM_SIZE: usize = 0x2000;
 
@@ -64,9 +65,9 @@ impl Interconnect {
         }
     }
 
-    // pub fn ppu(&self) -> &Ppu {
-    //     &self.ppu
-    // }
+    pub fn framebuffer(&self) -> &Box<[Color]> {
+        self.ppu.framebuffer()
+    }
 
     pub fn read_byte(&self, addr: u16) -> u8 {
         match mem_map::map_addr(addr) {
@@ -119,9 +120,9 @@ impl Interconnect {
             Addr::PpuLcdY => self.ppu.line,
             Addr::PpuLcdYCompare => self.ppu.lyc,
             Addr::PpuOamDma => self.dma_addr,
-            Addr::PpuBgPalette => self.ppu.bgp,    // TODO write only?
-            Addr::PpuObj0Palette => self.ppu.obp0, // TODO write only?
-            Addr::PpuObj1Palette => self.ppu.obp1, // TODO write only?
+            Addr::PpuBgPalette => 0xFF,    // TODO write only?
+            Addr::PpuObj0Palette => 0xFF, // TODO write only?
+            Addr::PpuObj1Palette => 0xFF, // TODO write only?
             Addr::PpuWindowY => self.ppu.wy,
             Addr::PpuWindowX => self.ppu.wx,
 
@@ -211,9 +212,9 @@ impl Interconnect {
                 self.dma_addr = value;
                 self.dma();
             }
-            Addr::PpuBgPalette => self.ppu.bgp = value,
-            Addr::PpuObj0Palette => self.ppu.obp0 = value,
-            Addr::PpuObj1Palette => self.ppu.obp1 = value,
+            Addr::PpuBgPalette => self.ppu.write_bg_palette(value),
+            Addr::PpuObj0Palette => self.ppu.write_obj0_palette(value),
+            Addr::PpuObj1Palette => self.ppu.write_obj1_palette(value),
             Addr::PpuWindowY => self.ppu.wy = value,
             Addr::PpuWindowX => self.ppu.wx = value,
 
