@@ -29,9 +29,13 @@ pub struct Ppu {
     lcd_enable: bool, // bit 7
     // LCD STAT, make separate struct?
     coincidence_int: bool,
+    pub coincidence_start: bool,
     mode2oam_int: bool,
+    pub enter_mode2: bool,
     mode1vblank_int: bool,
+    pub enter_mode1: bool,
     mode0hblank_int: bool,
+    pub enter_mode0: bool,
     // Scroll coords
     pub scy: u8,
     pub scx: u8,
@@ -59,9 +63,13 @@ impl Ppu {
             lyc: 0,
 
             coincidence_int: false,
+            coincidence_start: false,
             mode2oam_int: false,
+            enter_mode2: false,
             mode1vblank_int: false,
+            enter_mode1: false,
             mode0hblank_int: false,
+            enter_mode0: false,
 
             bg_display: true,  // bit 0
             obj_display: true,
@@ -97,6 +105,7 @@ impl Ppu {
             Mode::Vram => {
                 if self.modeclock >= 172 {
                     self.modeclock = 0;
+                    self.enter_mode0 = true;
                     self.mode = Mode::Hblank;
                     self.renderscan();
                 }
@@ -107,9 +116,11 @@ impl Ppu {
                     self.line += 1;
                     if self.line == 144 {
                         self.enter_vblank = true;
+                        self.enter_mode1 = true;
                         self.mode = Mode::Vblank;
                         // TODO update framebuffer
                     } else {
+                        self.enter_mode2 = true;
                         self.mode = Mode::Oam;
                     }
                 }
@@ -119,6 +130,7 @@ impl Ppu {
                     self.modeclock = 0;
                     self.line += 1;
                     if self.line == 153 {
+                        self.enter_mode2 = true;
                         self.mode = Mode::Oam;
                         self.line = 0;
                     }
@@ -179,11 +191,19 @@ impl Ppu {
     }
 
     pub fn read_oam(&self, addr: usize) -> u8 {
-        self.oam[addr]
+        match self.mode {
+            Mode::Hblank |
+            Mode::Vblank => self.oam[addr],
+            _ => 0xFF
+        }
     }
 
     pub fn read_oam16(&self, addr: usize) -> u16 {
-        LittleEndian::read_u16(&self.oam[addr..])
+        match self.mode {
+            Mode::Hblank |
+            Mode::Vblank => LittleEndian::read_u16(&self.oam[addr..]),
+            _ => 0xFFFF
+        }
     }
 
     pub fn write_oam(&mut self, addr: usize, value: u8) {

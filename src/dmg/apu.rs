@@ -28,6 +28,7 @@ pub struct Apu {
 
     channel3_enable: bool,
     channel3_volume: u8,
+    wave_pattern_ram: Box<[u8]>,
 
     channel4_envelope_volume: u8,
     channel4_envelope_direction: EnvDir,
@@ -78,6 +79,7 @@ impl Apu {
 
             channel3_enable: false,
             channel3_volume: 0,
+            wave_pattern_ram: vec![0; 0x10].into_boxed_slice(),
 
             channel4_envelope_volume: 0,
             channel4_envelope_direction: EnvDir::Down,
@@ -225,6 +227,14 @@ impl Apu {
 
     pub fn write_chan3_volume(&mut self, value: u8) {
         self.channel3_volume = value & 0b01100000;
+    }
+
+    pub fn read_wave_pattern_ram(&self, offset: usize) -> u8 {
+        self.wave_pattern_ram[offset]
+    }
+
+    pub fn write_wave_pattern_ram(&mut self, offset: usize, value: u8) {
+        self.wave_pattern_ram[offset] = value;
     }
 
     pub fn read_chan4_envelope(&self) -> u8 {

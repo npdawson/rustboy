@@ -26,6 +26,8 @@ const UNUSED_END: u16 = 0xFEFF;
 const JOYPAD_REG: u16 = 0xFF00;
 const SERIAL_DATA: u16 = 0xFF01;
 const SERIAL_CTRL: u16 = 0xFF02;
+const TIMER_DIV_REG: u16 = 0xFF04;
+const TIMER_COUNTER: u16 = 0xFF05;
 const TIMER_MODULO: u16 = 0xFF06;
 const TIMER_CTRL: u16 = 0xFF07;
 const IFLAGS: u16 = 0xFF0F;
@@ -41,6 +43,9 @@ const APU_CHAN2_FREQ_HI: u16 = 0xFF19;
 
 const APU_CHAN3_ENABLE: u16 = 0xFF1A;
 const APU_CHAN3_VOLUME: u16 = 0xFF1C;
+const APU_WAVE_RAM_START: u16 = 0xFF30;
+const APU_WAVE_RAM_LENGTH: u16 = 0x0010;
+const APU_WAVE_RAM_END: u16 = APU_WAVE_RAM_START + APU_WAVE_RAM_LENGTH - 1;
 
 const APU_CHAN4_ENVELOPE: u16 = 0xFF21;
 const APU_CHAN4_COUNTER_CONSEC: u16 = 0xFF23;
@@ -86,8 +91,8 @@ pub enum Addr {
     SerialData,     // FF01 SB
     SerialControl,  // FF02 SC
 
-    // TimerDivReg,    // FF04 DIV
-    // TimerCounter,   // FF05 TIMA
+    TimerDivReg,    // FF04 DIV
+    TimerCounter,   // FF05 TIMA
     TimerModulo,    // FF06 TMA
     TimerControl,   // FF07 TAC
 
@@ -157,6 +162,8 @@ pub enum Addr {
 //      ....
 //      FF3F 0000 1111 Samples 30 and 31
 
+    ApuWaveRam(usize),
+
     PpuControlReg,  // FF40 LCDC
     PpuStatusReg,   // FF41 STAT
     PpuScrollY,     // FF42 SCY
@@ -219,6 +226,8 @@ pub fn map_addr(addr: u16) -> Addr {
         JOYPAD_REG => Addr::JoypadReg,
         SERIAL_DATA => Addr::SerialData,
         SERIAL_CTRL => Addr::SerialControl,
+        TIMER_DIV_REG => Addr::TimerDivReg,
+        TIMER_COUNTER => Addr::TimerCounter,
         TIMER_MODULO => Addr::TimerModulo,
         TIMER_CTRL => Addr::TimerControl,
         IFLAGS => Addr::InterruptFlags,
@@ -234,6 +243,8 @@ pub fn map_addr(addr: u16) -> Addr {
 
         APU_CHAN3_ENABLE => Addr::ApuChan3Enable,
         APU_CHAN3_VOLUME => Addr::ApuChan3Volume,
+        APU_WAVE_RAM_START ... APU_WAVE_RAM_END =>
+            Addr::ApuWaveRam((addr - APU_WAVE_RAM_START) as usize),
 
         APU_CHAN4_ENVELOPE => Addr::ApuChan4Envelope,
         APU_CHAN4_COUNTER_CONSEC => Addr::ApuChan4CounterConsec,

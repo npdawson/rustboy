@@ -1,3 +1,5 @@
+use std::io::{self,Write};
+
 use byteorder::{LittleEndian, ByteOrder};
 
 use dmg::{Cart, Ppu, Apu, Timer}; // TODO more periphs?
@@ -84,6 +86,8 @@ impl Interconnect {
             Addr::JoypadReg => 0, // TODO Joypad input
             Addr::SerialData => self.serial_byte, // TODO
             Addr::SerialControl => self.read_serial_control(),
+            Addr::TimerDivReg => self.timer.read_div_reg(),
+            Addr::TimerCounter => self.timer.read_counter(),
             Addr::TimerModulo => self.timer.modulo,
             Addr::TimerControl => self.timer.read_timer_control(),
             Addr::InterruptFlags => self.iflags, // TODO
@@ -99,6 +103,7 @@ impl Interconnect {
 
             Addr::ApuChan3Enable => self.apu.read_chan3_enable(),
             Addr::ApuChan3Volume => self.apu.read_chan3_volume(),
+            Addr::ApuWaveRam(offset) => self.apu.read_wave_pattern_ram(offset),
 
             Addr::ApuChan4Envelope => self.apu.read_chan4_envelope(),
             Addr::ApuChan4CounterConsec => self.apu.read_chan4_counter_consec(),
@@ -162,8 +167,14 @@ impl Interconnect {
             Addr::Hram(offset) => self.hram[offset] = value,
 
             Addr::JoypadReg => {}, // TODO Joypad select
-            Addr::SerialData => self.serial_byte = value, // TODO
+            Addr::SerialData => {
+                self.serial_byte = value;
+                print!("{}", value as char);
+                io::stdout().flush().ok().expect("Could not flush stdout");
+            }, // TODO
             Addr::SerialControl => self.write_serial_control(value),
+            Addr::TimerDivReg => self.timer.write_div_reg(),
+            Addr::TimerCounter => self.timer.write_counter(value),
             Addr::TimerModulo => self.timer.modulo = value,
             Addr::TimerControl => self.timer.write_timer_control(value),
             Addr::InterruptFlags => {}, //TODO
@@ -179,9 +190,12 @@ impl Interconnect {
 
             Addr::ApuChan3Enable => self.apu.write_chan3_enable(value),
             Addr::ApuChan3Volume => self.apu.write_chan3_enable(value),
+            Addr::ApuWaveRam(offset) =>
+                self.apu.write_wave_pattern_ram(offset, value),
 
             Addr::ApuChan4Envelope => self.apu.write_chan4_envelope(value),
-            Addr::ApuChan4CounterConsec => self.apu.write_chan4_counter_consec(value),
+            Addr::ApuChan4CounterConsec =>
+                self.apu.write_chan4_counter_consec(value),
 
             Addr::ApuChanControl => self.apu.write_chan_control(value),
             Addr::ApuOutputSelect => self.apu.output_select = value,
@@ -243,17 +257,21 @@ impl Interconnect {
         let mode0_int = stat >> 3 & 1 != 0;
         let coincidence = stat >> 2 & 1 != 0;
         let mode = stat & 0b11;
-        if coincidence && coincidence_int {
+        if coincidence && coincidence_int && self.ppu.coincidence_start {
+            self.ppu.coincidence_start = false;
             self.iflags |= 1 << 1;
         }
         match mode {
-            0b00 => if mode0_int {
+            0b00 => if mode0_int && self.ppu.enter_mode0 {
+                self.ppu.enter_mode0 = false;
                 self.iflags |= 1 << 1;
             },
-            0b01 => if mode1_int {
+            0b01 => if mode1_int && self.ppu.enter_mode1 {
+                self.ppu.enter_mode1 = false;
                 self.iflags |= 1 << 1;
             },
-            0b10 => if mode2_int {
+            0b10 => if mode2_int && self.ppu.enter_mode2 {
+                self.ppu.enter_mode2 = false;
                 self.iflags |= 1 << 1;
             },
             _ => {}
@@ -268,6 +286,11 @@ impl Interconnect {
     }
 
     fn dma(&mut self) {
+        // TODO copy one byte per machine cycle
+        // possibly like this:
+        // -1: Read(0)
+        // 0: Read(1) Write(0)
+        // n: Read(n+1) Write(n)
         let addr = (self.dma_addr as u16) << 8;
         let slice = match mem_map::map_addr(addr) {
             Addr::Rom(offset) => &self.cart.rom[offset..],

@@ -67,7 +67,7 @@ impl Cpu {
             let opcode = interconnect.read_byte(pc);
             self.reg_pc = pc.saturating_add(1);
 
-            println!("PC: {:#x}", pc);
+            // println!("{:#x}: {:#x}", pc, opcode);
 
             self.execute_instr(opcode, interconnect);
 
@@ -95,7 +95,7 @@ impl Cpu {
         self.reg_a = result;
         self.flag_reg.zero = result == 0;
         self.flag_reg.sub = false;
-        self.flag_reg.half = (old & 0x0F + value & 0x0F) & 0x10 == 0x10;
+        self.flag_reg.half = ((old & 0x0F) + (value & 0x0F)) & 0x10 == 0x10;
         self.flag_reg.carry = (old as u16) + (value as u16) > 255;
     }
 
@@ -145,7 +145,8 @@ impl Cpu {
         self.reg_a = result;
         self.flag_reg.zero = result == 0x00;
         self.flag_reg.sub = false;
-        self.flag_reg.half = (old & 0x0F + value & 0x0F) & 0x10 == 0x10;
+        self.flag_reg.half =
+            (old & 0x0F).wrapping_add(value & 0x0F) & 0x10 == 0x10;
         self.flag_reg.carry = (old as u16) + (value as u16) > 255;
     }
 
@@ -158,11 +159,11 @@ impl Cpu {
         let result = if carry && self.flag_reg.carry {
             self.flag_reg.carry = (old as u16) + (value as u16).wrapping_add(1) > 255;
             self.flag_reg.half =
-                (old & 0x0F + value.wrapping_add(1) & 0x0F) & 0x10 == 0x10;
+                (old & 0xF).wrapping_add(value.wrapping_add(1) & 0xF) & 0x10 == 0x10;
             old.wrapping_add(value).wrapping_add(1)
         } else {
             self.flag_reg.carry = (old as u16) + (value as u16) > 255;
-            self.flag_reg.half = (old & 0x0F + value & 0x0F) & 0x10 == 0x10;
+            self.flag_reg.half = (old & 0x0F).wrapping_add(value & 0x0F) & 0x10 == 0x10;
             old.wrapping_add(value)
         };
         self.reg_a = result;
@@ -682,6 +683,62 @@ impl Cpu {
         self.write_reg(reg, result);
     }
 
+    fn set_hl(&mut self, bit: u8, interconnect: &mut Interconnect) {
+        self.last_t = 16;
+        let addr = self.read_reg16(Reg16::HL);
+        let old = interconnect.read_byte(addr);
+        let result = old | (1 << bit);
+        interconnect.write_byte(addr, result);
+    }
+
+    fn sla(&mut self, reg: Reg8) {
+        self.last_t = 8;
+        let old = self.read_reg(reg);
+        let result = old << 1;
+        self.write_reg(reg, result);
+        self.flag_reg.zero = result == 0;
+        self.flag_reg.sub = false;
+        self.flag_reg.half = false;
+        self.flag_reg.carry = old & 0x80 != 0;
+    }
+
+    fn sla_hl(&mut self, interconnect: &mut Interconnect) {
+        self.last_t = 16;
+        let addr = self.read_reg16(Reg16::HL);
+        let old = interconnect.read_byte(addr);
+        let result = old << 1;
+        interconnect.write_byte(addr, result);
+        self.flag_reg.zero = result == 0;
+        self.flag_reg.sub = false;
+        self.flag_reg.half = false;
+        self.flag_reg.carry = old & 0x80 != 0;
+    }
+
+    fn sra(&mut self, reg: Reg8) {
+        self.last_t = 8;
+        let old = self.read_reg(reg);
+        let sign = old & 0x80;
+        let result = old >> 1 | sign;
+        self.write_reg(reg, result);
+        self.flag_reg.zero = result == 0;
+        self.flag_reg.sub = false;
+        self.flag_reg.half = false;
+        self.flag_reg.carry = false;
+    }
+
+    fn sra_hl(&mut self, interconnect: &mut Interconnect) {
+        self.last_t = 16;
+        let addr = self.read_reg16(Reg16::HL);
+        let old = interconnect.read_byte(addr);
+        let sign = old & 0x80;
+        let result = old >> 1 | sign;
+        interconnect.write_byte(addr, result);
+        self.flag_reg.zero = result == 0;
+        self.flag_reg.sub = false;
+        self.flag_reg.half = false;
+        self.flag_reg.carry = false;
+    }
+
     fn srl(&mut self, reg: Reg8) {
         self.last_t = 8;
         let old = self.read_reg(reg);
@@ -706,7 +763,7 @@ impl Cpu {
     }
 
     fn stop(&mut self) {
-        self.stopped = true;
+        // self.stopped = true;
     }
 
     fn sub(&mut self, reg: Reg8) {
@@ -761,6 +818,20 @@ impl Cpu {
         let hi = old & 0xF0;
         let result = lo << 4 | hi >> 4;
         self.write_reg(reg, result);
+        self.flag_reg.zero = result == 0x00;
+        self.flag_reg.sub = false;
+        self.flag_reg.half = false;
+        self.flag_reg.carry = false;
+    }
+
+    fn swap_hl(&mut self, interconnect: &mut Interconnect) {
+        self.last_t = 16;
+        let addr = self.read_reg16(Reg16::HL);
+        let old = interconnect.read_byte(addr);
+        let lo = old & 0x0F;
+        let hi = old & 0xF0;
+        let result = lo << 4 | hi >> 4;
+        interconnect.write_byte(addr, result);
         self.flag_reg.zero = result == 0x00;
         self.flag_reg.sub = false;
         self.flag_reg.half = false;
@@ -890,7 +961,7 @@ impl Cpu {
             0x00 => {
                 // NOP
                 self.last_t = 4;
-                println!("NOP");
+                // println!("NOP");
             },
             0x01 => self.ldi16(Reg16::BC, interconnect),
             0x02 => self.ld_to_mem(Reg16::BC, ID::None, interconnect),
@@ -1313,7 +1384,7 @@ impl Cpu {
             }
             0xFB => {
                 // Enable Interrupts
-                println!("Interrupts Enabled!");
+                // println!("Interrupts Enabled!");
                 self.ime_next = true;
                 self.last_t = 4;
             }
@@ -1374,13 +1445,31 @@ impl Cpu {
             0x1E => self.rr_hl(interconnect),
             0x1F => self.rr(Reg8::A),
 
+            0x20 => self.sla(Reg8::B),
+            0x21 => self.sla(Reg8::C),
+            0x22 => self.sla(Reg8::D),
+            0x23 => self.sla(Reg8::E),
+            0x24 => self.sla(Reg8::H),
+            0x25 => self.sla(Reg8::L),
+            0x26 => self.sla_hl(interconnect),
+            0x27 => self.sla(Reg8::A),
+
+            0x28 => self.sra(Reg8::B),
+            0x29 => self.sra(Reg8::C),
+            0x2A => self.sra(Reg8::D),
+            0x2B => self.sra(Reg8::E),
+            0x2C => self.sra(Reg8::H),
+            0x2D => self.sra(Reg8::L),
+            0x2E => self.sra_hl(interconnect),
+            0x2F => self.sra(Reg8::A),
+
             0x30 => self.swap(Reg8::B),
             0x31 => self.swap(Reg8::C),
             0x32 => self.swap(Reg8::D),
             0x33 => self.swap(Reg8::E),
             0x34 => self.swap(Reg8::H),
             0x35 => self.swap(Reg8::L),
-
+            0x36 => self.swap_hl(interconnect),
             0x37 => self.swap(Reg8::A),
 
             0x38 => self.srl(Reg8::B),
@@ -1419,12 +1508,50 @@ impl Cpu {
             0x56 => self.bit_hl(2, interconnect),
             0x57 => self.bit(2, Reg8::A),
 
+            0x58 => self.bit(3, Reg8::B),
+            0x59 => self.bit(3, Reg8::C),
+            0x5A => self.bit(3, Reg8::D),
+            0x5B => self.bit(3, Reg8::E),
+            0x5C => self.bit(3, Reg8::H),
+            0x5D => self.bit(3, Reg8::L),
+            0x5E => self.bit_hl(3, interconnect),
+            0x5F => self.bit(3, Reg8::A),
+
+            0x60 => self.bit(4, Reg8::B),
+            0x61 => self.bit(4, Reg8::C),
+            0x62 => self.bit(4, Reg8::D),
+            0x63 => self.bit(4, Reg8::E),
+            0x64 => self.bit(4, Reg8::H),
+            0x65 => self.bit(4, Reg8::L),
+            0x66 => self.bit_hl(4, interconnect),
+            0x67 => self.bit(4, Reg8::A),
+
+            0x68 => self.bit(5, Reg8::B),
+            0x69 => self.bit(5, Reg8::C),
+            0x6A => self.bit(5, Reg8::D),
+            0x6B => self.bit(5, Reg8::E),
+            0x6C => self.bit(5, Reg8::H),
+            0x6D => self.bit(5, Reg8::L),
+            0x6E => self.bit_hl(5, interconnect),
             0x6F => self.bit(5, Reg8::A),
 
             0x70 => self.bit(6, Reg8::B),
+            0x71 => self.bit(6, Reg8::C),
+            0x72 => self.bit(6, Reg8::D),
+            0x73 => self.bit(6, Reg8::E),
+            0x74 => self.bit(6, Reg8::H),
+            0x75 => self.bit(6, Reg8::L),
+            0x76 => self.bit_hl(6, interconnect),
+            0x77 => self.bit(6, Reg8::A),
 
+            0x78 => self.bit(6, Reg8::B),
+            0x79 => self.bit(6, Reg8::C),
+            0x7A => self.bit(6, Reg8::D),
+            0x7B => self.bit(6, Reg8::E),
             0x7C => self.bit(7, Reg8::H),
+            0x7D => self.bit(7, Reg8::L),
             0x7E => self.bit_hl(7, interconnect),
+            0x7F => self.bit(7, Reg8::A),
 
             0x80 => self.res(0, Reg8::B),
             0x81 => self.res(0, Reg8::C),
@@ -1441,6 +1568,7 @@ impl Cpu {
             0x8B => self.res(1, Reg8::E),
             0x8C => self.res(1, Reg8::H),
             0x8D => self.res(1, Reg8::L),
+            0x8E => self.res_hl(1, interconnect),
             0x8F => self.res(1, Reg8::A),
 
             0x90 => self.res(2, Reg8::B),
@@ -1449,6 +1577,7 @@ impl Cpu {
             0x93 => self.res(2, Reg8::E),
             0x94 => self.res(2, Reg8::H),
             0x95 => self.res(2, Reg8::L),
+            0x96 => self.res_hl(2, interconnect),
             0x97 => self.res(2, Reg8::A),
 
             0x98 => self.res(3, Reg8::B),
@@ -1457,13 +1586,116 @@ impl Cpu {
             0x9B => self.res(3, Reg8::E),
             0x9C => self.res(3, Reg8::H),
             0x9D => self.res(3, Reg8::L),
+            0x9E => self.res_hl(3, interconnect),
             0x9F => self.res(3, Reg8::A),
 
+            0xA0 => self.res(4, Reg8::B),
+            0xA1 => self.res(4, Reg8::B),
+            0xA2 => self.res(4, Reg8::B),
+            0xA3 => self.res(4, Reg8::B),
+            0xA4 => self.res(4, Reg8::B),
+            0xA5 => self.res(4, Reg8::B),
+            0xA6 => self.res_hl(4, interconnect),
+            0xA7 => self.res(4, Reg8::B),
+
+            0xA8 => self.res(5, Reg8::B),
+            0xA9 => self.res(5, Reg8::B),
+            0xAA => self.res(5, Reg8::B),
+            0xAB => self.res(5, Reg8::B),
+            0xAC => self.res(5, Reg8::B),
+            0xAD => self.res(5, Reg8::B),
+            0xAE => self.res_hl(5, interconnect),
             0xAF => self.res(5, Reg8::A),
 
-            0xBE => self.res_hl(7, interconnect),
+            0xB0 => self.res(6, Reg8::B),
+            0xB1 => self.res(6, Reg8::B),
+            0xB2 => self.res(6, Reg8::B),
+            0xB3 => self.res(6, Reg8::B),
+            0xb4 => self.res(6, Reg8::B),
+            0xB5 => self.res(6, Reg8::B),
+            0xb6 => self.res_hl(6, interconnect),
+            0xb7 => self.res(6, Reg8::B),
 
+            0xb8 => self.res(7, Reg8::B),
+            0xb9 => self.res(7, Reg8::B),
+            0xba => self.res(7, Reg8::B),
+            0xbb => self.res(7, Reg8::B),
+            0xbc => self.res(7, Reg8::B),
+            0xbd => self.res(7, Reg8::B),
+            0xBE => self.res_hl(7, interconnect),
+            0xbf => self.res(7, Reg8::B),
+
+            0xC0 => self.set(0, Reg8::B),
+            0xC1 => self.set(0, Reg8::C),
+            0xC2 => self.set(0, Reg8::D),
+            0xC3 => self.set(0, Reg8::E),
+            0xC4 => self.set(0, Reg8::H),
+            0xC5 => self.set(0, Reg8::L),
+            0xC6 => self.set_hl(0, interconnect),
+            0xC7 => self.set(0, Reg8::A),
+
+            0xC8 => self.set(1, Reg8::B),
+            0xC9 => self.set(1, Reg8::C),
+            0xCa => self.set(1, Reg8::D),
+            0xCb => self.set(1, Reg8::E),
+            0xCc => self.set(1, Reg8::H),
+            0xCd => self.set(1, Reg8::L),
+            0xCE => self.set_hl(1, interconnect),
             0xCF => self.set(1, Reg8::A),
+
+            0xD0 => self.set(2, Reg8::B),
+            0xD1 => self.set(2, Reg8::C),
+            0xD2 => self.set(2, Reg8::D),
+            0xD3 => self.set(2, Reg8::E),
+            0xD4 => self.set(2, Reg8::H),
+            0xD5 => self.set(2, Reg8::L),
+            0xD6 => self.set_hl(2, interconnect),
+            0xD7 => self.set(2, Reg8::A),
+
+            0xD8 => self.set(3, Reg8::B),
+            0xD9 => self.set(3, Reg8::C),
+            0xDA => self.set(3, Reg8::D),
+            0xDB => self.set(3, Reg8::E),
+            0xDC => self.set(3, Reg8::H),
+            0xDD => self.set(3, Reg8::L),
+            0xDE => self.set_hl(3, interconnect),
+            0xDF => self.set(3, Reg8::A),
+
+            0xE0 => self.set(4, Reg8::B),
+            0xE1 => self.set(4, Reg8::C),
+            0xE2 => self.set(4, Reg8::D),
+            0xE3 => self.set(4, Reg8::E),
+            0xE4 => self.set(4, Reg8::H),
+            0xE5 => self.set(4, Reg8::L),
+            0xE6 => self.set_hl(4, interconnect),
+            0xE7 => self.set(4, Reg8::A),
+
+            0xE8 => self.set(5, Reg8::B),
+            0xE9 => self.set(5, Reg8::C),
+            0xEA => self.set(5, Reg8::D),
+            0xEB => self.set(5, Reg8::E),
+            0xEC => self.set(5, Reg8::H),
+            0xED => self.set(5, Reg8::L),
+            0xEE => self.set_hl(5, interconnect),
+            0xEF => self.set(5, Reg8::A),
+
+            0xF0 => self.set(6, Reg8::B),
+            0xF1 => self.set(6, Reg8::C),
+            0xF2 => self.set(6, Reg8::D),
+            0xF3 => self.set(6, Reg8::E),
+            0xF4 => self.set(6, Reg8::H),
+            0xF5 => self.set(6, Reg8::L),
+            0xF6 => self.set_hl(6, interconnect),
+            0xF7 => self.set(6, Reg8::A),
+
+            0xF8 => self.set(7, Reg8::B),
+            0xF9 => self.set(7, Reg8::C),
+            0xFA => self.set(7, Reg8::D),
+            0xFB => self.set(7, Reg8::E),
+            0xFC => self.set(7, Reg8::H),
+            0xFD => self.set(7, Reg8::L),
+            0xFE => self.set_hl(7, interconnect),
+            0xFF => self.set(7, Reg8::A),
 
             _ => panic!("Unknown CB op: {:#X} at addr: {:#X}", op, pc - 1),
         }
