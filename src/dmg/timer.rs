@@ -6,7 +6,7 @@ pub struct Timer {
     // FF07 Timer Control
     enabled: bool,
     input_clock: Clock,
-    tim_cycle_count: usize
+    timer_cycle_count: usize
 }
 
 impl Timer {
@@ -17,33 +17,31 @@ impl Timer {
             modulo: 0,
             enabled: false,
             input_clock: Clock::C4KHz,
-            tim_cycle_count: 0,
+            timer_cycle_count: 0,
         }
     }
 
     pub fn step(&mut self, cycles: usize) -> bool {
         // divider always runs
-        self.divider_reg = self.divider_reg.wrapping_add(cycles as u16);
+        let old_div = self.divider_reg;
+        self.divider_reg = old_div.wrapping_add(cycles as u16);
 
         // timer runs when enabled
         if self.enabled {
-            // TODO connect timer to div bits
-            // TODO Falling edge detector
-            self.tim_cycle_count += cycles;
-            let max = match self.input_clock {
-                Clock::C4KHz => 1024,
-                Clock::C256KHz => 16,
-                Clock::C64KHz => 64,
-                Clock::C16KHz => 256,
+            let bit = match self.input_clock {
+                Clock::C4KHz => 9,
+                Clock::C256KHz => 3,
+                Clock::C64KHz => 5,
+                Clock::C16KHz => 7,
             };
-            if self.tim_cycle_count >= max {
-                self.tim_cycle_count -= max;
-                self.counter.wrapping_add(1);
-                if self.counter == 0x101 {
-                    self.counter = self.modulo as u16;
-                    return true;
+            if self.divider_reg >> bit & 1 == 0 &&
+                old_div >> bit & 1 != 0 {
+                    self.counter = self.counter.wrapping_add(1);
+                    if self.counter == 0x100 {
+                        self.counter = self.modulo as u16;
+                        return true;
+                    }
                 }
-            }
         }
         false
     }
@@ -76,12 +74,12 @@ impl Timer {
     }
 
     pub fn write_timer_control(&mut self, value: u8) {
-        self.enabled = value >> 2 & 1 != 0;
+        self.enabled = (value >> 2) & 1 != 0;
         self.input_clock = match value & 0b11 {
-            00 => Clock::C4KHz,
-            01 => Clock::C256KHz,
-            10 => Clock::C64KHz,
-            11 => Clock::C16KHz,
+            0b00 => Clock::C4KHz,
+            0b01 => Clock::C256KHz,
+            0b10 => Clock::C64KHz,
+            0b11 => Clock::C16KHz,
             _ => unreachable!()
         };
     }
