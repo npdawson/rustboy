@@ -57,23 +57,25 @@ impl Cart {
     }
 
     pub fn ram_read_byte(&self, offset: usize) -> u8 {
-        if !self.ram_timer_enable { panic!("Enable RAM before reading!"); }
+        if !self.ram_timer_enable { return 0xFF }
         self.ram[offset]
     }
 
     pub fn ram_read_word(&self, offset: usize) -> u16 {
-        if !self.ram_timer_enable { panic!("Enable RAM before reading!"); }
+        if !self.ram_timer_enable { return 0xFFFF }
         LittleEndian::read_u16(&self.ram[offset..])
     }
 
     pub fn ram_write_byte(&mut self, offset: usize, value: u8) {
-        if !self.ram_timer_enable { panic!("Enable RAM before writing!"); }
-        self.ram[offset] = value;
+        if self.ram_timer_enable {
+            self.ram[offset] = value;
+        }
     }
 
     pub fn ram_write_word(&mut self, offset: usize, value: u16) {
-        if !self.ram_timer_enable { panic!("Enable RAM before writing!"); }
-        LittleEndian::write_u16(&mut self.ram[offset..], value);
+        if self.ram_timer_enable {
+            LittleEndian::write_u16(&mut self.ram[offset..], value);
+        }
     }
 
     pub fn mbc_write_byte(&mut self, offset: usize, value: u8) {
@@ -117,7 +119,18 @@ impl Cart {
         if offset < 0x4000 {
             self.rom[offset]
         } else {
-            let bank_offset = 0x4000 * (self.rom_bank.saturating_sub(1)) as usize;
+            let bank = match self.header.cart_type {
+                Mbc::Mbc1 |
+                Mbc::Mbc1Ram |
+                Mbc::Mbc1RamBat =>
+                    if let RomRam::Ram = self.rom_ram_mode {
+                        self.rom_bank & 0b11111
+                    } else {
+                        self.rom_bank
+                    },
+                _ => self.rom_bank
+            };
+            let bank_offset = 0x4000 * (bank.saturating_sub(1)) as usize;
             self.rom[offset + bank_offset]
         }
     }

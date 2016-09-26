@@ -1,12 +1,11 @@
 #[derive(Debug)]
 pub struct Timer {
-    divider_reg: u8, // FF04
+    divider_reg: u16, // FF04
     counter: u16,    // FF05
     pub modulo: u8,  // FF06
     // FF07 Timer Control
     enabled: bool,
     input_clock: Clock,
-    div_cycle_count: usize,
     tim_cycle_count: usize
 }
 
@@ -18,21 +17,18 @@ impl Timer {
             modulo: 0,
             enabled: false,
             input_clock: Clock::C4KHz,
-            div_cycle_count: 0,
             tim_cycle_count: 0,
         }
     }
 
     pub fn step(&mut self, cycles: usize) -> bool {
         // divider always runs
-        self.div_cycle_count += cycles;
-        if self.div_cycle_count >= 256 {
-            self.div_cycle_count -= 256;
-            self.divider_reg.wrapping_add(1);
-        }
+        self.divider_reg = self.divider_reg.wrapping_add(cycles as u16);
 
         // timer runs when enabled
         if self.enabled {
+            // TODO connect timer to div bits
+            // TODO Falling edge detector
             self.tim_cycle_count += cycles;
             let max = match self.input_clock {
                 Clock::C4KHz => 1024,
@@ -43,13 +39,29 @@ impl Timer {
             if self.tim_cycle_count >= max {
                 self.tim_cycle_count -= max;
                 self.counter.wrapping_add(1);
-                if self.counter == 0x100 {
+                if self.counter == 0x101 {
                     self.counter = self.modulo as u16;
                     return true;
                 }
             }
         }
         false
+    }
+
+    pub fn read_div_reg(&self) -> u8 {
+        (self.divider_reg >> 8) as u8
+    }
+
+    pub fn write_div_reg(&mut self) {
+        self.divider_reg = 0;
+    }
+
+    pub fn read_counter(&self) -> u8 {
+        self.counter as u8
+    }
+
+    pub fn write_counter(&mut self, value: u8) {
+        self.counter = value as u16;
     }
 
     pub fn read_timer_control(&self) -> u8 {
