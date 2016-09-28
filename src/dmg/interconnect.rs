@@ -8,7 +8,6 @@ use Color;
 
 const RAM_SIZE: usize = 0x2000;
 
-#[derive(Debug)]
 pub struct Interconnect {
     ppu: Ppu,
     apu: Apu,
@@ -65,7 +64,7 @@ impl Interconnect {
         }
     }
 
-    pub fn framebuffer(&self) -> &Box<[Color]> {
+    pub fn framebuffer(&self) -> &[Color] {
         self.ppu.framebuffer()
     }
 
@@ -99,6 +98,7 @@ impl Interconnect {
             Addr::ApuChan1FreqLo => panic!("0xFF13 is write-only!"),
             Addr::ApuChan1FreqHi => self.apu.read_chan1_freq_hi(),
 
+            Addr::ApuChan2WaveLength => self.apu.read_chan2_wavelength(),
             Addr::ApuChan2Envelope => self.apu.read_chan2_envelope(),
             Addr::ApuChan2FreqHi => self.apu.read_chan2_freq_hi(),
 
@@ -186,6 +186,7 @@ impl Interconnect {
             Addr::ApuChan1FreqLo => self.apu.write_chan1_freq_lo(value),
             Addr::ApuChan1FreqHi => self.apu.write_chan1_freq_hi(value),
 
+            Addr::ApuChan2WaveLength => self.apu.write_chan2_wavelength(value),
             Addr::ApuChan2Envelope => self.apu.write_chan2_envelope(value),
             Addr::ApuChan2FreqHi => self.apu.write_chan2_freq_hi(value),
 
@@ -296,12 +297,17 @@ impl Interconnect {
         let slice = match mem_map::map_addr(addr) {
             Addr::Rom(offset) => &self.cart.rom[offset..],
             Addr::Ram(offset) => &self.ram[offset..],
-            Addr::Vram(offset) => &self.ppu.vram[offset..],
+            Addr::Vram(offset) => {
+                self.ppu.dma_from_vram(offset);
+                return;
+            },
             Addr::Xram(offset) => &self.cart.ram[offset..],
             Addr::Echo(offset) => &self.ram[offset..],
             _ => panic!("Can't DMA from addresses higher than 0xF100")
         };
-        self.ppu.oam = slice.to_vec().into_boxed_slice();
+        for x in 0x00 .. 0xA0 {
+            self.ppu.write_oam(x, slice[x]);
+        }
     }
 
     fn read_serial_control(&self) -> u8 {

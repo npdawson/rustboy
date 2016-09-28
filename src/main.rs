@@ -13,6 +13,9 @@ use std::env;
 use std::io::Read;
 use std::path::Path;
 use sdl2::pixels::PixelFormatEnum;
+use std::thread::sleep;
+use std::time;
+use std::sync::mpsc::channel;
 
 struct_events!{
     keyboard: {
@@ -41,6 +44,17 @@ fn main() {
     let mut texture = renderer.create_texture_streaming(
         PixelFormatEnum::RGB24, 160, 144).unwrap();
 
+    texture.with_lock(None, |buffer: &mut [u8], pitch: usize| {
+        for y in 0..144 {
+            for x in 0..160 {
+                let offset = y*pitch + x*3;
+                buffer[offset + 0] = x as u8;
+                buffer[offset + 1] = y as u8;
+                buffer[offset + 2] = 0;
+            }
+        }
+    }).unwrap();
+
     let boot_file_name = env::args().nth(1).unwrap();
     let rom_file_name = env::args().nth(2).unwrap();
 
@@ -51,6 +65,8 @@ fn main() {
 
     let mut events = Events::new(sdl_context.event_pump().unwrap());
 
+    let mut cycles = 0;
+
     loop {
         events.pump();
 
@@ -58,7 +74,11 @@ fn main() {
             break;
         }
 
-        dmg.step();
+        while cycles < 0x10000 {
+            cycles += dmg.step();
+        }
+
+        cycles -= 0x10000;
 
         texture.with_lock(None, |buffer: &mut [u8], pitch: usize| {
             for i in 0..(160 * 144) {
@@ -72,6 +92,7 @@ fn main() {
         renderer.clear();
         renderer.copy(&texture, None, None);
         renderer.present();
+        // std::thread::sleep(time::Duration::from_millis(1));
     }
 }
 

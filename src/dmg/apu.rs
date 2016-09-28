@@ -19,6 +19,8 @@ pub struct Apu {
     // bit 7 Initial (1 = restart sound)
     channel1_counter_consecutive: bool, // bit 6 (1 = stop output when length expires)
 
+    channel2_wave: WaveDuty,
+    channel2_length: u8,
     channel2_envelope_volume: u8,
     channel2_envelope_direction: EnvDir,
     channel2_envelope_sweeps: u8,
@@ -69,6 +71,9 @@ impl Apu {
 
             channel1_frequency: 0x70,
             channel1_counter_consecutive: false,
+
+            channel2_wave: WaveDuty::Half,
+            channel2_length: 0x3F,
 
             channel2_envelope_volume: 0x0,
             channel2_envelope_direction: EnvDir::Down,
@@ -176,6 +181,28 @@ impl Apu {
         let freq_hi = ((value as u16) & 0b111) << 8;
         self.channel1_frequency = self.channel1_frequency & 0xF | freq_hi;
     }
+
+    pub fn read_chan2_wavelength(&self) -> u8 {
+        let bit76 = match self.channel2_wave {
+            WaveDuty::Eighth  => 0b00 << 6,
+            WaveDuty::Quarter => 0b01 << 6,
+            WaveDuty::Half    => 0b10 << 6,
+            WaveDuty::ThreeQuarters => 0x11 << 6,
+        };
+        bit76 | self.channel2_length
+    }
+
+    pub fn write_chan2_wavelength(&mut self, value: u8) {
+        self.channel2_wave = match value >> 6 {
+            0b00 => WaveDuty::Eighth,
+            0b01 => WaveDuty::Quarter,
+            0b10 => WaveDuty::Half,
+            0b11 => WaveDuty::ThreeQuarters,
+            _ => unreachable!()
+        };
+        self.channel2_length = value & 0x3F;
+    }
+
 
     pub fn read_chan2_envelope(&self) -> u8 {
         let direction = match self.channel2_envelope_direction {

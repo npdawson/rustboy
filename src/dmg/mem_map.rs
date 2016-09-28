@@ -38,6 +38,7 @@ const APU_CHAN1_ENVELOPE: u16 = 0xFF12;
 const APU_CHAN1_FREQ_LO: u16 = 0xFF13;
 const APU_CHAN1_FREQ_HI: u16 = 0xFF14;
 
+const APU_CHAN2_WAVELENGTH: u16 = 0xFF16;
 const APU_CHAN2_ENVELOPE: u16 = 0xFF17;
 const APU_CHAN2_FREQ_HI: u16 = 0xFF19;
 
@@ -120,6 +121,7 @@ pub enum Addr {
 // NR23 FF18 FFFF FFFF Frequency LSB
 // NR24 FF19 TL-- -FFF Trigger, Length enable, Frequency MSB
 
+    ApuChan2WaveLength,
     ApuChan2Envelope,
     ApuChan2FreqHi,
 
@@ -238,6 +240,7 @@ pub fn map_addr(addr: u16) -> Addr {
         APU_CHAN1_FREQ_LO => Addr::ApuChan1FreqLo,
         APU_CHAN1_FREQ_HI => Addr::ApuChan1FreqHi,
 
+        APU_CHAN2_WAVELENGTH => Addr::ApuChan2WaveLength,
         APU_CHAN2_ENVELOPE => Addr::ApuChan2Envelope,
         APU_CHAN2_FREQ_HI => Addr::ApuChan2FreqHi,
 
