@@ -74,11 +74,11 @@ fn main() {
             break;
         }
 
-        while cycles < 0x10000 {
+        while cycles < 0x4444 {
             cycles += dmg.step();
         }
 
-        cycles -= 0x10000;
+        cycles -= 0x4444;
 
         texture.with_lock(None, |buffer: &mut [u8], pitch: usize| {
             for i in 0..(160 * 144) {
