@@ -659,7 +659,7 @@ impl Cpu {
             Sra(_) => {
                 let sign = old & (1 << 7);
                 result = old >> 1 | sign;
-                self.flag_reg.carry = false;
+                self.flag_reg.carry = old & 1 != 0;
             },
             Srl(_) => {
                 result = old >> 1;
