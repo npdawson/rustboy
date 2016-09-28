@@ -205,8 +205,8 @@ impl Cpu {
         self.flag_reg.zero = result == 0;
         self.flag_reg.sub = false;
         self.flag_reg.half =
-            (old & 0xF).wrapping_add(value & 0xF) & 0x10 == 0x10;
-        self.flag_reg.carry = (old as u16).wrapping_add(value as u16) > 0xFF;
+            (old & 0xF) + (value & 0xF) >= 0x10;
+        self.flag_reg.carry = (old as u16) + (value as u16) >= 0x100;
     }
 
     fn add_hl(&mut self, reg: Reg16) {
@@ -611,9 +611,10 @@ impl Cpu {
             _ => unreachable!()
         };
         if self.flag_reg.carry {
-            value.wrapping_add(1);
+            value = value.wrapping_add(1);
         }
         let result = old.wrapping_sub(value);
+        self.reg_a = result;
         self.flag_reg.zero = result == 0;
         self.flag_reg.sub = true;
         self.flag_reg.half = (old & 0xF) < (value & 0xF);
