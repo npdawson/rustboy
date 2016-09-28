@@ -1382,7 +1382,7 @@ impl Cpu {
                 self.reg_pc += 2;
                 let value = self.read_byte(interconnect, addr);
                 self.reg_a = value;
-                self.last_t = 12;
+                self.last_t = 16;
             }
             0xFB => {
                 // Enable Interrupts

@@ -33,7 +33,7 @@ impl Cart {
             rom_ram_mode: RomRam::Rom,
 
             rom: rom,
-            ram: vec![0; ram_size].into_boxed_slice(),
+            ram: vec![0; 128 * 1024].into_boxed_slice(),
         }
     }
 

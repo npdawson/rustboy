@@ -7,13 +7,16 @@ const SCREEN_WIDTH: usize = 160;
 const SCREEN_HEIGHT: usize = 144;
 const SCREEN_AREA: usize = SCREEN_WIDTH * SCREEN_HEIGHT;
 
+use std::cmp::Ordering;
 use byteorder::{ByteOrder, LittleEndian};
 use Color;
 
-#[derive(Debug)]
 pub struct Ppu {
-    pub vram: Box<[u8]>,
-    pub oam: Box<[u8]>,
+    vram: Box<[u8]>,
+    oam: Box<[Sprite]>,
+    tileset: Box<[Tile]>,
+    tile_map1: Box<[u8]>,
+    tile_map2: Box<[u8]>,
 
     fb: Box<[Color]>,
     mode: Mode,
@@ -56,10 +59,13 @@ pub struct Ppu {
 impl Ppu {
     pub fn new() -> Ppu {
         Ppu {
-            vram: vec![0; 0x2000].into_boxed_slice(),
-            oam: vec![0; 0xA0].into_boxed_slice(),
+            vram: Box::new([0; 0x2000]),
+            oam: Box::new([Sprite::new(); 40]),
+            tileset: Box::new([Tile::new(); 384]),
+            tile_map1: Box::new([0; 0x400]),
+            tile_map2: Box::new([0; 0x400]),
 
-            fb: vec![Color::Off; SCREEN_AREA].into_boxed_slice(),
+            fb: Box::new([Color::Off; SCREEN_AREA]),
             mode: Mode::Oam,
             modeclock: 0,
             line: 0,
@@ -97,7 +103,7 @@ impl Ppu {
         }
     }
 
-    pub fn framebuffer(&self) -> &Box<[Color]> {
+    pub fn framebuffer(&self) -> &[Color] {
         &self.fb
     }
 
@@ -114,11 +120,13 @@ impl Ppu {
                 }
             }
             Mode::Vram => {
+                if self.modeclock == 4 {
+                    self.draw_line();
+                }
                 if self.modeclock >= 172 {
                     self.modeclock = 0;
                     self.enter_mode0 = true;
                     self.mode = Mode::Hblank;
-                    self.draw_line();
                 }
             }
             Mode::Hblank => {
@@ -150,43 +158,107 @@ impl Ppu {
     }
 
     pub fn read_vram(&self, addr: usize) -> u8 {
-        self.vram[addr]
+        match self.mode {
+            Mode::Vram => 0xFF,
+            _ => match addr {
+                0x0000 ... 0x17FF => {
+                    let tile = &self.tileset[addr / 16];
+                    tile.data[addr % 16]
+                },
+                0x1800 ... 0x1BFF => self.tile_map1[addr - 0x1800],
+                _ => self.tile_map2[addr - 0x1C00]
+            }
+        }
     }
 
     pub fn read_vram16(&self, addr: usize) -> u16 {
-        LittleEndian::read_u16(&self.vram[addr..])
+        match self.mode {
+            Mode::Hblank |
+            Mode::Vblank |
+            Mode::Oam => LittleEndian::read_u16(&self.vram[addr..]),
+            _ => 0xFFFF
+        }
     }
 
     pub fn write_vram(&mut self, addr: usize, value: u8) {
-        self.vram[addr] = value;
+        match self.mode {
+            Mode::Vram => return,
+            _ => match addr {
+                0x0000 ... 0x17FF => {
+                    let tile = &mut self.tileset[addr / 16];
+                    tile.data[addr % 16] = value;
+                },
+                0x1800 ... 0x1BFF => self.tile_map1[addr - 0x1800] = value,
+                _ => self.tile_map2[addr - 0x1C00] = value
+            }
+        }
     }
 
     pub fn write_vram16(&mut self, addr: usize, value: u16) {
-        LittleEndian::write_u16(&mut self.vram[addr..], value);
+        match self.mode {
+            Mode::Vram => return,
+            _ => LittleEndian::write_u16(&mut self.vram[addr..], value)
+        }
     }
 
     pub fn read_oam(&self, addr: usize) -> u8 {
         match self.mode {
             Mode::Hblank |
-            Mode::Vblank => self.oam[addr],
+            Mode::Vblank => {
+                let sprite_addr = addr / 4;
+                match addr % 4 {
+                    0 => self.oam[sprite_addr].y,
+                    1 => self.oam[sprite_addr].x,
+                    2 => self.oam[sprite_addr].tile,
+                    3 => {
+                        let sprite = self.oam[sprite_addr];
+                        let bit7 = if sprite.bg_prio { 1 << 7 } else { 0 };
+                        let bit6 = if sprite.x_flip { 1 << 6 } else { 0 };
+                        let bit5 = if sprite.y_flip { 1 << 5 } else { 0 };
+                        let bit4 = if sprite.palette { 1 << 4 } else { 0 };
+                        bit7 | bit6 | bit5 | bit4
+                    },
+                    _ => unreachable!()
+                }
+            },
             _ => 0xFF
         }
     }
 
     pub fn read_oam16(&self, addr: usize) -> u16 {
-        match self.mode {
-            Mode::Hblank |
-            Mode::Vblank => LittleEndian::read_u16(&self.oam[addr..]),
-            _ => 0xFFFF
-        }
+        (self.read_oam(addr) as u16) << 8 | self.read_oam(addr + 1) as u16
     }
 
     pub fn write_oam(&mut self, addr: usize, value: u8) {
-        self.oam[addr] = value;
+        if self.mode == Mode::Vram || self.mode == Mode::Oam {
+            return;
+        }
+        let sprite_addr = addr / 4;
+        match addr % 4 {
+            0 => self.oam[sprite_addr].y = value,
+            1 => self.oam[sprite_addr].x = value,
+            2 => self.oam[sprite_addr].tile = value,
+            3 => {
+                let sprite = &mut self.oam[sprite_addr];
+                sprite.bg_prio = value >> 7 != 0;
+                sprite.y_flip = value >> 6 & 1 != 0;
+                sprite.x_flip = value >> 5 & 1 != 0;
+                sprite.palette = value >> 4 & 1 != 0;
+            },
+            _ => unreachable!()
+        }
     }
 
     pub fn write_oam16(&mut self, addr: usize, value: u16) {
-        LittleEndian::write_u16(&mut self.oam[addr..], value);
+        self.write_oam(addr, (value >> 8) as u8);
+        self.write_oam(addr + 1, (value as u8) & 0xFF);
+    }
+
+    pub fn dma_from_vram(&mut self, offset: usize) {
+        for x in 0x00 .. 0xA0 {
+            let byte = self.read_vram(offset + x);
+            self.write_oam(x, byte);
+        }
     }
 
     pub fn read_lcd_ctrl(&self) -> u8 {
@@ -279,31 +351,36 @@ impl Ppu {
         let pixels = &mut self.fb[slice_start .. slice_end];
         let mut bg_priority = [false; SCREEN_WIDTH];
 
-        let map_offset: usize = match self.bg_tilemap_select {
-            Tilemap::Map0 => 0x1800,
-            Tilemap::Map1 => 0x1C00
-        };
-
         if self.bg_display {
+            // let map_offset: usize = match self.bg_tilemap_select {
+            //     Tilemap::Map0 => 0x1800,
+            //     Tilemap::Map1 => 0x1C00
+            // };
+            let tile_map = if self.bg_tilemap_select == Tilemap::Map1 {
+                &self.tile_map2
+            } else {
+                &self.tile_map1
+            };
+
             let y = self.line.wrapping_add(self.scy);
             let row = (y >> 3) as usize;
             for i in 0..SCREEN_WIDTH {
                 let x = (i as u8).wrapping_add(self.scx);
                 let col = (x >> 3) as usize;
-                let raw_tile_num = self.vram[map_offset + (row * 32 + col)];
+                let raw_tile_num = tile_map[row * 32 + col];
 
                 let tile_num =
-                    if let Tileset::Set1 = self.bg_win_tileset_select {
-                        raw_tile_num as usize
-                    } else if raw_tile_num < 128 {
-                        128 + ((raw_tile_num as i8 as i16) + 128) as usize
+                    if raw_tile_num < 128
+                    && self.bg_win_tileset_select == Tileset::Set0 {
+                        256 + (raw_tile_num as usize)
                     } else {
                         raw_tile_num as usize
                     };
+                let tile = &self.tileset[tile_num];
 
                 let line = (y % 8) * 2;
-                let data1 = self.vram[tile_num + line as usize];
-                let data2 = self.vram[tile_num + line as usize + 1];
+                let data1 = tile.data[line as usize];
+                let data2 = tile.data[line as usize + 1];
 
                 let bit = (x % 8).wrapping_sub(7).wrapping_mul(0xFF) as usize;
                 let color_value = ((data2 >> bit) << 1) & 2
@@ -315,6 +392,16 @@ impl Ppu {
             }
         }
         if self.win_display && self.wy <= self.line {
+            // let map_offset: usize = match self.win_tilemap_select {
+            //     Tilemap::Map0 => 0x1800,
+            //     Tilemap::Map1 => 0x1C00
+            // };
+            let tile_map = if self.win_tilemap_select == Tilemap::Map1 {
+                &self.tile_map2
+            } else {
+                &self.tile_map1
+            };
+
             let window_x = self.wx.wrapping_sub(7);
             let y = self.line - self.wy;
             let row = (y / 8) as usize;
@@ -324,20 +411,20 @@ impl Ppu {
                     x = i as u8 - window_x;
                 }
                 let col = (x / 8) as usize;
-                let raw_tile_num = self.vram[map_offset + (row * 32 + col)];
+                let raw_tile_num = tile_map[row * 32 + col];
 
                 let tile_num =
-                    if let Tileset::Set1 = self.bg_win_tileset_select {
-                        raw_tile_num as usize
-                    } else if raw_tile_num < 128 {
-                        128 + ((raw_tile_num as i8 as i16) + 128) as usize
+                    if raw_tile_num < 128
+                    && self.bg_win_tileset_select == Tileset::Set0 {
+                        256 + raw_tile_num as usize
                     } else {
                         raw_tile_num as usize
                     };
+                let tile = &self.tileset[tile_num];
 
                 let line = (y % 8) * 2;
-                let data1 = self.vram[tile_num + line as usize];
-                let data2 = self.vram[tile_num + line as usize + 1];
+                let data1 = tile.data[line as usize];
+                let data2 = tile.data[line as usize + 1];
 
                 let bit = (x % 8).wrapping_sub(7).wrapping_mul(0xFF) as usize;
                 let color_value = ((data2 >> bit) << 1) & 2
@@ -355,47 +442,61 @@ impl Ppu {
             };
 
             let current_line = self.line;
-            for i in 0..0x28 {
-                let offset = i * 4;
-                let sprite_y = self.oam[offset];
-                let sprite_x = self.oam[offset + 1];
-                let mut tile_num = self.oam[offset + 2] as usize;
-                let flags = self.oam[offset + 3];
 
-                let palette = match flags >> 4 & 1 {
-                    0 => &self.obp0,
-                    _ => &self.obp1
-                };
-                let mut line = if flags >> 6 & 1 != 0 {
-                    size - current_line.wrapping_sub(sprite_y) - 1
+            let mut sprites_to_draw: Vec<(usize, &Sprite)> = self.oam.iter()
+                .filter(|sprite| current_line.wrapping_sub(sprite.y) < size)
+                .take(10)
+                .enumerate()
+                .collect();
+
+            sprites_to_draw.sort_by(|&(a_index, a), &(b_index, b)| {
+                match a.x.cmp(&b.x) {
+                    // if X coords are same, use oam index as priority
+                    Ordering::Equal => a_index.cmp(&b_index).reverse(),
+                    // use X coord as priority
+                    other => other.reverse()
+                }
+            });
+
+            for (_, sprite) in sprites_to_draw {
+
+                let mut tile_num = sprite.tile as usize;
+
+                let palette = if sprite.palette {
+                    &self.obp1
                 } else {
-                    current_line.wrapping_sub(sprite_y)
+                    &self.obp0
+                };
+                let mut line = if sprite.y_flip {
+                    size - current_line.wrapping_sub(sprite.y) - 1
+                } else {
+                    current_line.wrapping_sub(sprite.y)
                 };
                 if line >= 8 {
                     tile_num += 1;
                     line -= 8;
                 }
-                line *= 2;
-                // let tile = self.vram[tile_num];
-                let data1 = self.vram[tile_num + line as usize];
-                let data2 = self.vram[tile_num + line as usize + 1];
+                line = line.wrapping_mul(2);
+                let tile = &self.tileset[tile_num];
+                let data1 = tile.data[line as usize];
+                let data2 = tile.data[line as usize + 1];
 
                 for x in (0..8).rev() {
                     let bit =
-                        if flags >> 5 & 1 != 0 {
+                        if sprite.x_flip {
                             7 - x
                         } else {
                             x
                         } as usize;
-                    let color_value = ((data2 >> bit) << 1) & 2
+                    let color_value = (((data2 >> bit) & 1) << 1)
                         | ((data1 >> bit) & 1);
                     let raw_color = Color::from_u8(color_value);
                     let color = palette.get(&raw_color);
-                    let target_x = sprite_x.wrapping_add(7 - x);
+                    let target_x = sprite.x.wrapping_add(7 - x);
                     if target_x < SCREEN_WIDTH as u8
                         && raw_color != Color::Off
                     {
-                        if flags >> 7 == 0 || !bg_priority[target_x as usize] {
+                        if !sprite.bg_prio || !bg_priority[target_x as usize] {
                             pixels[target_x as usize] = color;
                         }
                     }
@@ -405,7 +506,7 @@ impl Ppu {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug,PartialEq)]
 enum Mode {
     Oam,    // 2
     Vram,   // 3
@@ -413,13 +514,13 @@ enum Mode {
     Vblank  // 1
 }
 
-#[derive(Debug)]
+#[derive(Debug,PartialEq)]
 enum Tileset {
     Set0, // 0x8000-0x8FFF
     Set1, // 0x8800-0x97FF
 }
 
-#[derive(Debug)]
+#[derive(Debug,PartialEq)]
 enum Tilemap {
     Map0, // 0x9800-0x9BFF
     Map1  // 0x9C00-0x9FFF
@@ -463,5 +564,45 @@ impl Palette {
         self.light = Color::from_u8((value >> 2) & 0b11);
         self.dark = Color::from_u8((value >> 4) & 0b11);
         self.on = Color::from_u8((value >> 6) & 0b11);
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Sprite {
+    y: u8,
+    x: u8,
+    tile: u8,
+    bg_prio: bool,
+    y_flip: bool,
+    x_flip: bool,
+    palette: bool,
+    //vram_bank: bool,// CGB only
+    //cgb_palette: u8 // 3 bits
+}
+
+impl Sprite {
+    fn new() -> Sprite {
+        Sprite {
+            y: 0,
+            x: 0,
+            tile: 0,
+            bg_prio: false,
+            y_flip: false,
+            x_flip: false,
+            palette: false,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct Tile {
+    data: [u8; 16]
+}
+
+impl Tile {
+    fn new() -> Tile {
+        Tile {
+            data: [0; 16]
+        }
     }
 }

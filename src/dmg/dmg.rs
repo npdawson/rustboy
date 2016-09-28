@@ -2,7 +2,6 @@ use dmg::cpu::Cpu;
 use dmg::interconnect::Interconnect;
 use Color;
 
-#[derive(Debug)]
 pub struct Dmg {
     cpu: Cpu,
     interconnect: Interconnect,
@@ -20,7 +19,7 @@ impl Dmg {
         &self.cpu
     }
 
-    pub fn framebuffer(&self) -> &Box<[Color]> {
+    pub fn framebuffer(&self) -> &[Color] {
         self.interconnect.framebuffer()
     }
 
@@ -28,12 +27,13 @@ impl Dmg {
         &self.interconnect
     }
 
-    pub fn step(&mut self) {
+    pub fn step(&mut self) -> usize {
         let int_cycles = self.proc_interrupts();
         let cycles = self.cpu.step(&mut self.interconnect);
         for _ in 0..(cycles + int_cycles) / 4 {
             self.interconnect.step(4);
         }
+        cycles + int_cycles
     }
 
     fn proc_interrupts(&mut self) -> usize {
