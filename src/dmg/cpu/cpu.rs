@@ -205,8 +205,8 @@ impl Cpu {
         self.flag_reg.zero = result == 0;
         self.flag_reg.sub = false;
         self.flag_reg.half =
-            (old & 0xF) + (value & 0xF) >= 0x10;
-        self.flag_reg.carry = (old as u16) + (value as u16) >= 0x100;
+            ((old & 0xF) + (value & 0xF)) & 0x10 == 0x10;
+        self.flag_reg.carry = ((old as u16) + (value as u16)) & 0x100 == 0x100;
     }
 
     fn add_hl(&mut self, reg: Reg16) {
@@ -602,7 +602,7 @@ impl Cpu {
 
     fn sbc(&mut self, op: Operand8, interconnect: &mut Interconnect) {
         let old = self.reg_a;
-        let mut value = match op {
+        let value = match op {
             Reg(reg) => self.read_reg(reg),
             Imm(imm) => imm,
             Mem(Addr::HL) => {
@@ -611,15 +611,18 @@ impl Cpu {
             },
             _ => unreachable!()
         };
-        if self.flag_reg.carry {
-            value = value.wrapping_add(1);
-        }
-        let result = old.wrapping_sub(value);
+        let result = if self.flag_reg.carry {
+            self.flag_reg.carry = old < value.wrapping_add(1);
+            self.flag_reg.half = old & 0xf < value.wrapping_add(1) & 0xf;
+            old.wrapping_sub(value).wrapping_sub(1)
+        } else {
+            self.flag_reg.carry = old < value;
+            self.flag_reg.half = old & 0xf < value & 0xf;
+            old.wrapping_sub(value)
+        };
         self.reg_a = result;
         self.flag_reg.zero = result == 0;
         self.flag_reg.sub = true;
-        self.flag_reg.half = (old & 0xF) < (value & 0xF);
-        self.flag_reg.carry = old < value;
     }
 
     fn scf(&mut self) {
