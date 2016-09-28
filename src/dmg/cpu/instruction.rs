@@ -74,8 +74,8 @@ fn decode(op: u8, imm16: u16) -> (u8, u8, Opcode) {
         0x19 => (1, 2, AddHl(DE)),
         0x1a => (1, 2, Ld(Reg(A), Mem(Addr::DE))),
         0x1b => (1, 2, Dec16(DE)),
-        0x1c => (1, 1, Inc(Reg(C))),
-        0x1d => (1, 1, Dec(Reg(C))),
+        0x1c => (1, 1, Inc(Reg(E))),
+        0x1d => (1, 1, Dec(Reg(E))),
         0x1e => (2, 2, Ld(Reg(E), Imm(d8))),
         0x1f => (1, 1, Rra),
 
