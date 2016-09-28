@@ -40,15 +40,21 @@ const APU_CHAN1_FREQ_HI: u16 = 0xFF14;
 
 const APU_CHAN2_WAVELENGTH: u16 = 0xFF16;
 const APU_CHAN2_ENVELOPE: u16 = 0xFF17;
+const APU_CHAN2_FREQ_LO: u16 = 0xff18;
 const APU_CHAN2_FREQ_HI: u16 = 0xFF19;
 
 const APU_CHAN3_ENABLE: u16 = 0xFF1A;
+const APU_CHAN3_LENGTH: u16 = 0xff1b;
 const APU_CHAN3_VOLUME: u16 = 0xFF1C;
+const APU_CHAN3_FREQ_LO: u16 = 0xff1d;
+const APU_CHAN3_FREQ_HI: u16 = 0xff1e;
 const APU_WAVE_RAM_START: u16 = 0xFF30;
 const APU_WAVE_RAM_LENGTH: u16 = 0x0010;
 const APU_WAVE_RAM_END: u16 = APU_WAVE_RAM_START + APU_WAVE_RAM_LENGTH - 1;
 
+const APU_CHAN4_LENGTH: u16 = 0xff20;
 const APU_CHAN4_ENVELOPE: u16 = 0xFF21;
+const APU_CHAN4_POLYCOUNTER: u16 = 0xff22;
 const APU_CHAN4_COUNTER_CONSEC: u16 = 0xFF23;
 
 const APU_CHAN_CONTROL: u16 = 0xFF24;
@@ -123,6 +129,7 @@ pub enum Addr {
 
     ApuChan2WaveLength,
     ApuChan2Envelope,
+    ApuChan2FreqLo,
     ApuChan2FreqHi,
 
 //        Wave
@@ -133,7 +140,10 @@ pub enum Addr {
 // NR34 FF1E TL-- -FFF Trigger, Length enable, Frequency MSB
 
     ApuChan3Enable,
+    ApuChan3Length,
     ApuChan3Volume,
+    ApuChan3FreqLo,
+    ApuChan3FreqHi,
 
 //        Noise
 //      FF1F ---- ---- Not used
@@ -142,7 +152,9 @@ pub enum Addr {
 // NR43 FF22 SSSS WDDD Clock shift, Width mode of LFSR, Divisor code
 // NR44 FF23 TL-- ---- Trigger, Length enable
 
+    ApuChan4Length,
     ApuChan4Envelope,
+    ApuChan4PolyCounter,
     ApuChan4CounterConsec,
 
 //        Control/Status
@@ -242,14 +254,20 @@ pub fn map_addr(addr: u16) -> Addr {
 
         APU_CHAN2_WAVELENGTH => Addr::ApuChan2WaveLength,
         APU_CHAN2_ENVELOPE => Addr::ApuChan2Envelope,
+        APU_CHAN2_FREQ_LO => Addr::ApuChan2FreqLo,
         APU_CHAN2_FREQ_HI => Addr::ApuChan2FreqHi,
 
         APU_CHAN3_ENABLE => Addr::ApuChan3Enable,
+        APU_CHAN3_LENGTH => Addr::ApuChan3Length,
         APU_CHAN3_VOLUME => Addr::ApuChan3Volume,
+        APU_CHAN3_FREQ_LO => Addr::ApuChan3FreqLo,
+        APU_CHAN3_FREQ_HI => Addr::ApuChan3FreqHi,
         APU_WAVE_RAM_START ... APU_WAVE_RAM_END =>
             Addr::ApuWaveRam((addr - APU_WAVE_RAM_START) as usize),
 
+        APU_CHAN4_LENGTH => Addr::ApuChan4Length,
         APU_CHAN4_ENVELOPE => Addr::ApuChan4Envelope,
+        APU_CHAN4_POLYCOUNTER => Addr::ApuChan4PolyCounter,
         APU_CHAN4_COUNTER_CONSEC => Addr::ApuChan4CounterConsec,
 
         APU_CHAN_CONTROL => Addr::ApuChanControl,

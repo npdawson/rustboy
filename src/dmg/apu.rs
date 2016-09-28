@@ -29,13 +29,19 @@ pub struct Apu {
     channel2_counter_consecutive: bool,
 
     channel3_enable: bool,
+    channel3_length: u8,
     channel3_volume: u8,
+    channel3_frequency: u16,
+    channel3_counter_consecutive: bool,
     wave_pattern_ram: Box<[u8]>,
 
+    channel4_length: u8,
     channel4_envelope_volume: u8,
     channel4_envelope_direction: EnvDir,
     channel4_envelope_sweeps: u8,
-
+    channel4_shift_freq: u8,
+    channel4_counter_step: bool,
+    channel4_div_ratio: u8,
     channel4_counter_consecutive: bool,
 
     // FF24 NR50 Channel Control
@@ -83,12 +89,19 @@ impl Apu {
             channel2_counter_consecutive: false,
 
             channel3_enable: false,
+            channel3_length: 0,
             channel3_volume: 0,
+            channel3_frequency: 0,
+            channel3_counter_consecutive: false,
             wave_pattern_ram: vec![0; 0x10].into_boxed_slice(),
 
+            channel4_length: 0,
             channel4_envelope_volume: 0,
             channel4_envelope_direction: EnvDir::Down,
             channel4_envelope_sweeps: 0,
+            channel4_shift_freq: 0,
+            channel4_counter_step: false,
+            channel4_div_ratio: 0,
             channel4_counter_consecutive: false,
 
             so2_output_enable: false,
@@ -166,7 +179,8 @@ impl Apu {
     }
 
     pub fn write_chan1_freq_lo(&mut self, value: u8) {
-        self.channel1_frequency = self.channel1_frequency & 0xF0 | value as u16;
+        let hi = self.channel1_frequency & 0x700;
+        self.channel1_frequency = hi | value as u16;
     }
 
     pub fn read_chan1_freq_hi(&self) -> u8 {
@@ -179,7 +193,7 @@ impl Apu {
         }
         self.channel1_counter_consecutive = value >> 6 & 1 != 0;
         let freq_hi = ((value as u16) & 0b111) << 8;
-        self.channel1_frequency = self.channel1_frequency & 0xF | freq_hi;
+        self.channel1_frequency = self.channel1_frequency & 0xFF | freq_hi;
     }
 
     pub fn read_chan2_wavelength(&self) -> u8 {
@@ -223,6 +237,11 @@ impl Apu {
         self.channel2_envelope_sweeps = value & 0b111;
     }
 
+    pub fn write_chan2_freq_lo(&mut self, value: u8) {
+        let hi = self.channel2_frequency & 0x700;
+        self.channel2_frequency = hi | value as u16;
+    }
+
     pub fn read_chan2_freq_hi(&self) -> u8 {
         if self.channel2_counter_consecutive { 1 << 6 } else { 0 }
     }
@@ -233,7 +252,7 @@ impl Apu {
         }
         self.channel2_counter_consecutive = value >> 6 & 1 != 0;
         let freq_hi = ((value as u16) & 0b111) << 8;
-        self.channel2_frequency = self.channel2_frequency & 0xF | freq_hi;
+        self.channel2_frequency = self.channel2_frequency & 0xFF | freq_hi;
     }
 
     pub fn read_chan3_enable(&self) -> u8 {
@@ -248,6 +267,14 @@ impl Apu {
         self.channel3_enable = value >> 7 != 0;
     }
 
+    pub fn read_chan3_length(&self) -> u8 {
+        self.channel3_length
+    }
+
+    pub fn write_chan3_length(&mut self, value: u8) {
+        self.channel3_length = value;
+    }
+
     pub fn read_chan3_volume(&self) -> u8 {
         self.channel3_volume & 0b01100000
     }
@@ -256,12 +283,39 @@ impl Apu {
         self.channel3_volume = value & 0b01100000;
     }
 
+    pub fn write_chan3_freq_lo(&mut self, value: u8) {
+        let hi = self.channel3_frequency & 0x700;
+        self.channel3_frequency = hi | value as u16;
+    }
+
+    pub fn read_chan3_freq_hi(&self) -> u8 {
+        if self.channel3_counter_consecutive {1 << 6} else {0}
+    }
+
+    pub fn write_chan3_freq_hi(&mut self, value: u8) {
+        if value >> 7 != 0 {
+            self.sound_3_on = true;
+        }
+        self.channel3_counter_consecutive = value >> 6 & 1 != 0;
+        let freq_hi = ((value as u16) & 0b111) << 8;
+        let freq_lo = self.channel3_frequency & 0xFF;
+        self.channel2_frequency = freq_hi | freq_lo;
+    }
+
     pub fn read_wave_pattern_ram(&self, offset: usize) -> u8 {
         self.wave_pattern_ram[offset]
     }
 
     pub fn write_wave_pattern_ram(&mut self, offset: usize, value: u8) {
         self.wave_pattern_ram[offset] = value;
+    }
+
+    pub fn read_chan4_length(&self) -> u8 {
+        self.channel4_length & 0x3F
+    }
+
+    pub fn write_chan4_length(&mut self, value: u8) {
+        self.channel4_length = value & 0x3F;
     }
 
     pub fn read_chan4_envelope(&self) -> u8 {
@@ -281,6 +335,19 @@ impl Apu {
             _ => EnvDir::Up
         };
         self.channel4_envelope_sweeps = value & 0b111;
+    }
+
+    pub fn read_chan4_polycounter(&self) -> u8 {
+        let bits7to4 = self.channel4_shift_freq << 4;
+        let bit3 = if self.channel4_counter_step {1 << 3} else {0};
+        let bits2to0 = self.channel4_div_ratio;
+        bits7to4 | bit3 | bits2to0
+    }
+
+    pub fn write_chan4_polycounter(&mut self, value: u8) {
+        self.channel4_shift_freq = value >> 4;
+        self.channel4_counter_step = value >> 3 & 1 != 0;
+        self.channel4_div_ratio = value & 0b111;
     }
 
     pub fn read_chan4_counter_consec(&self) -> u8 {

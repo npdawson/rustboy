@@ -28,6 +28,8 @@ pub struct Interconnect {
 
     iflags: u8, // TODO break up the bits for store
     dma_addr: u8,
+    dma_buffer: u8,
+    dma_counter: u8,
 
     ie_reg: u8 // Interrupts Enable Register TODO break up bits
 }
@@ -59,6 +61,8 @@ impl Interconnect {
 
             iflags: 0,
             dma_addr: 0,
+            dma_buffer: 0,
+            dma_counter: 0xA0,
 
             ie_reg: 0x00,
         }
@@ -83,7 +87,7 @@ impl Interconnect {
             Addr::Unused => 0xFF,
             Addr::Hram(offset) => self.hram[offset],
 
-            Addr::JoypadReg => 0, // TODO Joypad input
+            Addr::JoypadReg => 0xFF, // TODO Joypad input
             Addr::SerialData => self.serial_byte, // TODO
             Addr::SerialControl => self.read_serial_control(),
             Addr::TimerDivReg => self.timer.read_div_reg(),
@@ -100,13 +104,19 @@ impl Interconnect {
 
             Addr::ApuChan2WaveLength => self.apu.read_chan2_wavelength(),
             Addr::ApuChan2Envelope => self.apu.read_chan2_envelope(),
+            Addr::ApuChan2FreqLo => panic!("0xFF18 is write-only!"),
             Addr::ApuChan2FreqHi => self.apu.read_chan2_freq_hi(),
 
             Addr::ApuChan3Enable => self.apu.read_chan3_enable(),
+            Addr::ApuChan3Length => self.apu.read_chan3_length(),
             Addr::ApuChan3Volume => self.apu.read_chan3_volume(),
+            Addr::ApuChan3FreqLo => panic!("0xFF1D is write-only!"),
+            Addr::ApuChan3FreqHi => self.apu.read_chan3_freq_hi(),
             Addr::ApuWaveRam(offset) => self.apu.read_wave_pattern_ram(offset),
 
+            Addr::ApuChan4Length => self.apu.read_chan4_length(),
             Addr::ApuChan4Envelope => self.apu.read_chan4_envelope(),
+            Addr::ApuChan4PolyCounter => self.apu.read_chan4_polycounter(),
             Addr::ApuChan4CounterConsec => self.apu.read_chan4_counter_consec(),
 
             Addr::ApuChanControl => self.apu.read_chan_control(),
@@ -188,14 +198,20 @@ impl Interconnect {
 
             Addr::ApuChan2WaveLength => self.apu.write_chan2_wavelength(value),
             Addr::ApuChan2Envelope => self.apu.write_chan2_envelope(value),
+            Addr::ApuChan2FreqLo => self.apu.write_chan2_freq_lo(value),
             Addr::ApuChan2FreqHi => self.apu.write_chan2_freq_hi(value),
 
             Addr::ApuChan3Enable => self.apu.write_chan3_enable(value),
-            Addr::ApuChan3Volume => self.apu.write_chan3_enable(value),
+            Addr::ApuChan3Length => self.apu.write_chan3_length(value),
+            Addr::ApuChan3Volume => self.apu.write_chan3_volume(value),
+            Addr::ApuChan3FreqLo => self.apu.write_chan3_freq_lo(value),
+            Addr::ApuChan3FreqHi => self.apu.write_chan3_freq_hi(value),
             Addr::ApuWaveRam(offset) =>
                 self.apu.write_wave_pattern_ram(offset, value),
 
+            Addr::ApuChan4Length => self.apu.write_chan4_length(value),
             Addr::ApuChan4Envelope => self.apu.write_chan4_envelope(value),
+            Addr::ApuChan4PolyCounter => self.apu.write_chan4_polycounter(value),
             Addr::ApuChan4CounterConsec =>
                 self.apu.write_chan4_counter_consec(value),
 
@@ -211,6 +227,7 @@ impl Interconnect {
             Addr::PpuLcdYCompare => self.ppu.lyc = value,
             Addr::PpuOamDma => {
                 self.dma_addr = value;
+                self.dma_counter = 0;
                 self.dma();
             }
             Addr::PpuBgPalette => self.ppu.write_bg_palette(value),
@@ -245,6 +262,11 @@ impl Interconnect {
     }
 
     pub fn step(&mut self, cycles: usize) {
+        // OAM DMA
+        if self.dma_counter < 0xA0 {
+            self.dma();
+        }
+
         // Vblank Interrupt
         if self.ppu.line == 144 && self.ppu.enter_vblank {
             self.iflags |= 1 << 0;
@@ -288,8 +310,7 @@ impl Interconnect {
     }
 
     fn dma(&mut self) {
-        // TODO copy one byte per machine cycle
-        // possibly like this:
+        // TODO check this
         // -1: Read(0)
         // 0: Read(1) Write(0)
         // n: Read(n+1) Write(n)
@@ -305,9 +326,12 @@ impl Interconnect {
             Addr::Echo(offset) => &self.ram[offset..],
             _ => panic!("Can't DMA from addresses higher than 0xF100")
         };
-        for x in 0x00 .. 0xA0 {
-            self.ppu.write_oam(x, slice[x]);
+        let x = self.dma_counter as usize;
+        if self.dma_counter != 0 {
+            self.ppu.write_oam(x - 1, self.dma_buffer)
         }
+        self.dma_buffer = slice[x];
+        self.dma_counter += 1;
     }
 
     fn read_serial_control(&self) -> u8 {
