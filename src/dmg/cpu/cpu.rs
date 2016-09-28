@@ -69,7 +69,9 @@ impl Cpu {
                 self.ime = true;
             }
             let pc = self.reg_pc;
+            print!("{:#x}: ", pc);
             let instr = Instruction::fetch(pc, interconnect);
+            println!("{:?}", instr.opcode());
             self.reg_pc = pc.saturating_add(instr.bytes() as u16);
 
             let cycles = self.execute(instr, interconnect);
@@ -170,9 +172,8 @@ impl Cpu {
         self.reg_a = result;
         self.flag_reg.zero = result == 0;
         self.flag_reg.sub = false;
-        self.flag_reg.half =
-            (old & 0xF).wrapping_add(value & 0xF) & 0x10 == 0x10;
-        self.flag_reg.carry = (old as u16).wrapping_add(value as u16) > 0xFF;
+        self.flag_reg.half = (old & 0xF) + (value & 0xF) >= 0x10;
+        self.flag_reg.carry = (old as u16) + (value as u16) > 0xFF;
     }
 
     fn adc(&mut self, op: Operand8, interconnect: &mut Interconnect) {
@@ -419,6 +420,11 @@ impl Cpu {
                     Addr::Imm(imm) => imm,
                     Addr::FF(imm) => 0xFF00 | imm as u16,
                 };
+                if let Addr::HLD = mem {
+                    self.write_reg16(HL, addr.wrapping_sub(1));
+                } else if let Addr::HLI = mem {
+                    self.write_reg16(HL, addr.wrapping_add(1));
+                }
                 interconnect.read_byte(addr)
             },
         };
@@ -437,9 +443,9 @@ impl Cpu {
                 };
                 interconnect.write_byte(addr, value);
                 if let Addr::HLD = mem {
-                    self.write_reg16(HL, addr - 1);
+                    self.write_reg16(HL, addr.wrapping_sub(1));
                 } else if let Addr::HLI = mem {
-                    self.write_reg16(HL, addr + 1);
+                    self.write_reg16(HL, addr.wrapping_add(1));
                 }
             }
             _ => unreachable!()

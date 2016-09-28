@@ -147,7 +147,7 @@ impl Ppu {
                 if self.modeclock >= 456 {
                     self.modeclock = 0;
                     self.line += 1;
-                    if self.line == 153 {
+                    if self.line > 153 {
                         self.enter_mode2 = true;
                         self.mode = Mode::Oam;
                         self.line = 0;

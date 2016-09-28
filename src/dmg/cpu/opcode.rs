@@ -1,4 +1,4 @@
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub enum Opcode {
     Ld(Operand8, Operand8),
     Ld16(Reg16, u16),
@@ -55,14 +55,14 @@ pub enum Opcode {
     Undefined(u8)
 }
 
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub enum Operand8 {
     Reg(Reg8),
     Imm(u8),
     Mem(Addr)
 }
 
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub enum Addr {
     BC,
     DE,
@@ -74,7 +74,7 @@ pub enum Addr {
     FF(u8)
 }
 
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub enum Reg8 {
     A,
     B,
@@ -86,7 +86,7 @@ pub enum Reg8 {
     L,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub enum Reg16 {
     AF,
     BC,
@@ -96,7 +96,7 @@ pub enum Reg16 {
     PC,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub enum JF { // Jump flags
     Always,
     Z,

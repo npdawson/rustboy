@@ -16,8 +16,7 @@ pub struct Instruction {
 impl Instruction {
     pub fn fetch(pc: u16, interconnect: &mut Interconnect) -> Instruction {
         let opcode = interconnect.read_byte(pc);
-        let imm16 = (interconnect.read_byte(pc + 2) as u16) << 8
-            | interconnect.read_byte(pc + 1) as u16;
+        let imm16 = interconnect.read_word(pc + 1);
         let (bytes, cycles, op) = decode(opcode, imm16);
         Instruction {
             opcode: op,
@@ -62,7 +61,7 @@ fn decode(op: u8, imm16: u16) -> (u8, u8, Opcode) {
         0x0e => (2, 2, Ld(Reg(C), Imm(d8))),
         0x0f => (1, 1, Rrca),
 
-        0x10 => (1, 1, Stop),
+        0x10 => (2, 1, Stop),
         0x11 => (3, 3, Ld16(DE, imm16)),
         0x12 => (1, 2, Ld(Mem(Addr::DE), Reg(A))),
         0x13 => (1, 2, Inc16(DE)),
@@ -405,7 +404,7 @@ fn decode_cb(op: u8) -> (u8, u8, Opcode) {
         0x43 => (2, 2, Bit(0, Reg(E))),
         0x44 => (2, 2, Bit(0, Reg(H))),
         0x45 => (2, 2, Bit(0, Reg(L))),
-        0x46 => (2, 4, Bit(0, Mem(Addr::HL))),
+        0x46 => (2, 3, Bit(0, Mem(Addr::HL))),
         0x47 => (2, 2, Bit(0, Reg(A))),
 
         0x48 => (2, 2, Bit(1, Reg(B))),
@@ -414,7 +413,7 @@ fn decode_cb(op: u8) -> (u8, u8, Opcode) {
         0x4b => (2, 2, Bit(1, Reg(E))),
         0x4c => (2, 2, Bit(1, Reg(H))),
         0x4d => (2, 2, Bit(1, Reg(L))),
-        0x4e => (2, 4, Bit(1, Mem(Addr::HL))),
+        0x4e => (2, 3, Bit(1, Mem(Addr::HL))),
         0x4f => (2, 2, Bit(1, Reg(A))),
 
         0x50 => (2, 2, Bit(2, Reg(B))),
@@ -423,7 +422,7 @@ fn decode_cb(op: u8) -> (u8, u8, Opcode) {
         0x53 => (2, 2, Bit(2, Reg(E))),
         0x54 => (2, 2, Bit(2, Reg(H))),
         0x55 => (2, 2, Bit(2, Reg(L))),
-        0x56 => (2, 4, Bit(2, Mem(Addr::HL))),
+        0x56 => (2, 3, Bit(2, Mem(Addr::HL))),
         0x57 => (2, 2, Bit(2, Reg(A))),
 
         0x58 => (2, 2, Bit(3, Reg(B))),
@@ -432,7 +431,7 @@ fn decode_cb(op: u8) -> (u8, u8, Opcode) {
         0x5b => (2, 2, Bit(3, Reg(E))),
         0x5c => (2, 2, Bit(3, Reg(H))),
         0x5d => (2, 2, Bit(3, Reg(L))),
-        0x5e => (2, 4, Bit(3, Mem(Addr::HL))),
+        0x5e => (2, 3, Bit(3, Mem(Addr::HL))),
         0x5f => (2, 2, Bit(3, Reg(A))),
 
         0x60 => (2, 2, Bit(4, Reg(B))),
@@ -441,7 +440,7 @@ fn decode_cb(op: u8) -> (u8, u8, Opcode) {
         0x63 => (2, 2, Bit(4, Reg(E))),
         0x64 => (2, 2, Bit(4, Reg(H))),
         0x65 => (2, 2, Bit(4, Reg(L))),
-        0x66 => (2, 4, Bit(4, Mem(Addr::HL))),
+        0x66 => (2, 3, Bit(4, Mem(Addr::HL))),
         0x67 => (2, 2, Bit(4, Reg(A))),
 
         0x68 => (2, 2, Bit(5, Reg(B))),
@@ -450,7 +449,7 @@ fn decode_cb(op: u8) -> (u8, u8, Opcode) {
         0x6b => (2, 2, Bit(5, Reg(E))),
         0x6c => (2, 2, Bit(5, Reg(H))),
         0x6d => (2, 2, Bit(5, Reg(L))),
-        0x6e => (2, 4, Bit(5, Mem(Addr::HL))),
+        0x6e => (2, 3, Bit(5, Mem(Addr::HL))),
         0x6f => (2, 2, Bit(5, Reg(A))),
 
         0x70 => (2, 2, Bit(6, Reg(B))),
@@ -459,7 +458,7 @@ fn decode_cb(op: u8) -> (u8, u8, Opcode) {
         0x73 => (2, 2, Bit(6, Reg(E))),
         0x74 => (2, 2, Bit(6, Reg(H))),
         0x75 => (2, 2, Bit(6, Reg(L))),
-        0x76 => (2, 4, Bit(6, Mem(Addr::HL))),
+        0x76 => (2, 3, Bit(6, Mem(Addr::HL))),
         0x77 => (2, 2, Bit(6, Reg(A))),
 
         0x78 => (2, 2, Bit(7, Reg(B))),
@@ -468,7 +467,7 @@ fn decode_cb(op: u8) -> (u8, u8, Opcode) {
         0x7b => (2, 2, Bit(7, Reg(E))),
         0x7c => (2, 2, Bit(7, Reg(H))),
         0x7d => (2, 2, Bit(7, Reg(L))),
-        0x7e => (2, 4, Bit(7, Mem(Addr::HL))),
+        0x7e => (2, 3, Bit(7, Mem(Addr::HL))),
         0x7f => (2, 2, Bit(7, Reg(A))),
 
         0x80 => (2, 2, Res(0, Reg(B))),
