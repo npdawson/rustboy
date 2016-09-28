@@ -264,7 +264,8 @@ impl Cpu {
     }
 
     fn ccf(&mut self) {
-        self.flag_reg.carry = false;
+        // toggle carry, NOT CLEAR
+        self.flag_reg.carry = !self.flag_reg.carry;
         self.flag_reg.half = false;
         self.flag_reg.sub = false;
     }
