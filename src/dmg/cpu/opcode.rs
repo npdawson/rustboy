@@ -2,6 +2,7 @@
 pub enum Opcode {
     Ld(Operand8, Operand8),
     Ld16(Reg16, u16),
+    LdnnSp(u16),
     LdSpHl,
     Push(Reg16),
     Pop(Reg16),
@@ -56,9 +57,9 @@ pub enum Opcode {
 
 #[derive(Copy, Clone)]
 pub enum Operand8 {
-    Register(Reg8),
-    Immediate(u8),
-    Memory(Addr)
+    Reg(Reg8),
+    Imm(u8),
+    Mem(Addr)
 }
 
 #[derive(Copy, Clone)]
@@ -83,7 +84,6 @@ pub enum Reg8 {
     F,
     H,
     L,
-    //    AtHL,
 }
 
 #[derive(Copy, Clone)]
@@ -103,10 +103,4 @@ pub enum JF { // Jump flags
     C,
     NZ,
     NC
-}
-
-pub enum ID { // Inc/Dec HL
-    None,
-    Inc,
-    Dec
 }
