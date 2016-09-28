@@ -69,9 +69,9 @@ impl Cpu {
                 self.ime = true;
             }
             let pc = self.reg_pc;
-            print!("{:#x}: ", pc);
+            // print!("{:#x}: ", pc);
             let instr = Instruction::fetch(pc, interconnect);
-            println!("{:?}", instr.opcode());
+            // println!("{:?}", instr.opcode());
             self.reg_pc = pc.saturating_add(instr.bytes() as u16);
 
             let cycles = self.execute(instr, interconnect);
@@ -88,7 +88,7 @@ impl Cpu {
         match opcode {
             Ld(op1, op2) => self.ld(op1, op2, interconnect),
             Ld16(reg, imm) => self.write_reg16(reg, imm),
-            LdnnSp(imm) => self.reg_sp = imm,
+            LdnnSp(imm) => self.ld_nn_sp(imm, interconnect),
             LdSpHl => self.reg_sp = self.read_reg16(HL),
             Push(reg) => self.push(reg, interconnect),
             Pop(reg) => self.pop(reg, interconnect),
@@ -188,7 +188,7 @@ impl Cpu {
             _ => unreachable!()
         };
         if self.flag_reg.carry {
-            value += 1;
+            value = value.wrapping_add(1);
         }
         let result = old.wrapping_add(value);
         self.reg_a = result;
@@ -464,6 +464,11 @@ impl Cpu {
         self.flag_reg.carry = (sp & 0xFF) + (offset & 0xFF) >= 0x100;
     }
 
+    fn ld_nn_sp(&mut self, addr: u16, interconnect: &mut Interconnect) {
+        let sp = self.reg_sp;
+        interconnect.write_word(addr, sp);
+    }
+
     fn or(&mut self, op: Operand8, interconnect: &mut Interconnect) {
         let old = self.reg_a;
         let value = match op {
@@ -580,11 +585,8 @@ impl Cpu {
     }
 
     fn rst(&mut self, addr: u8, interconnect: &mut Interconnect) {
-        let sp = self.reg_sp - 2;
-        let pc = self.reg_pc;
-        interconnect.write_word(sp, pc);
+        self.push(PC, interconnect);
         self.reg_pc = addr as u16;
-        self.reg_sp = sp;
     }
 
     fn sbc(&mut self, op: Operand8, interconnect: &mut Interconnect) {
@@ -599,7 +601,7 @@ impl Cpu {
             _ => unreachable!()
         };
         if self.flag_reg.carry {
-            value += 1;
+            value.wrapping_add(1);
         }
         let result = old.wrapping_sub(value);
         self.flag_reg.zero = result == 0;
