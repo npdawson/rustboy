@@ -107,7 +107,7 @@ impl Cpu {
             AddHl(reg) => self.add_hl(reg),
             Inc16(reg) => self.inc16(reg),
             Dec16(reg) => self.dec16(reg),
-            AddSp(r8) => self.reg_sp = self.reg_sp.wrapping_add(r8 as u16),
+            AddSp(r8) => self.add_sp(r8),
             LdHlSp(r8) => self.ld_hl_sp(r8),
             Rlca |
             Rla |
@@ -174,6 +174,16 @@ impl Cpu {
         self.flag_reg.sub = false;
         self.flag_reg.half = (old & 0xF) + (value & 0xF) >= 0x10;
         self.flag_reg.carry = (old as u16) + (value as u16) > 0xFF;
+    }
+
+    fn add_sp(&mut self, r8: i8) {
+        let sp = self.reg_sp;
+        let imm = r8 as u16;
+        self.reg_sp = sp.wrapping_add(imm);
+        self.flag_reg.zero = false;
+        self.flag_reg.sub = false;
+        self.flag_reg.half = (sp & 0xF) + (imm & 0xF) & 0x10 == 0x10;
+        self.flag_reg.carry = (sp & 0xFF) + (imm & 0xFF) & 0x100 == 0x100;
     }
 
     fn adc(&mut self, op: Operand8, interconnect: &mut Interconnect) {
