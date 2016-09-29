@@ -234,8 +234,8 @@ impl Ppu {
         }
         let sprite_addr = addr / 4;
         match addr % 4 {
-            0 => self.oam[sprite_addr].y = value,
-            1 => self.oam[sprite_addr].x = value,
+            0 => self.oam[sprite_addr].y = value.wrapping_sub(16),
+            1 => self.oam[sprite_addr].x = value.wrapping_sub(8),
             2 => self.oam[sprite_addr].tile = value,
             3 => {
                 let sprite = &mut self.oam[sprite_addr];
