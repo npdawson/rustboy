@@ -6,6 +6,7 @@ pub struct Cart {
 
     ram_timer_enable: bool,
     rom_bank: u8,
+    rom_bank_hi: u8,
     ram_bank_rtc: u8,
     rom_ram_mode: RomRam,
 
@@ -29,11 +30,12 @@ impl Cart {
 
             ram_timer_enable: false,
             rom_bank: 0,
+            rom_bank_hi: 0,
             ram_bank_rtc: 0,
             rom_ram_mode: RomRam::Rom,
 
             rom: rom,
-            ram: vec![0; 128 * 1024].into_boxed_slice(),
+            ram: vec![0; ram_size].into_boxed_slice(),
         }
     }
 
@@ -44,6 +46,7 @@ impl Cart {
             Mbc::Mbc1Ram |
             Mbc::Mbc1RamBat => self.mbc1_rom_read_byte(offset),
             Mbc::Mbc3RamBat => self.mbc1_rom_read_byte(offset),
+            Mbc::Mbc5RamBat => self.mbc5_rom_read_byte(offset),
         }
     }
 
@@ -86,6 +89,7 @@ impl Cart {
             Mbc::Mbc1Ram |
             Mbc::Mbc1RamBat => self.mbc1_write(offset, value),
             Mbc::Mbc3RamBat => self.mbc3_write(offset, value),
+            Mbc::Mbc5RamBat => self.mbc5_write(offset, value),
         }
     }
 
@@ -115,8 +119,19 @@ impl Cart {
         }
     }
 
+    fn mbc5_write(&mut self, offset: usize, value: u8) {
+        match offset {
+            0x0000 ... 0x1fff => self.ram_timer_enable = value & 0xF == 0xA,
+            0x2000 ... 0x2fff => self.rom_bank = value,
+            0x3000 ... 0x3fff => self.rom_bank_hi = value & 1,
+            0x4000 ... 0x5fff => self.ram_bank_rtc = value & 0xF,
+            0x6000 ... 0x7fff => {},
+            _ => unreachable!()
+        }
+    }
+
     fn mbc1_rom_read_byte(&self, offset: usize) -> u8 {
-        if offset < 0x4000 {
+        if offset < 0x4000 || self.rom_bank == 0 && self.rom_bank_hi == 0 {
             self.rom[offset]
         } else {
             let bank = match self.header.cart_type {
@@ -130,6 +145,16 @@ impl Cart {
                     },
                 _ => self.rom_bank
             };
+            let bank_offset = 0x4000 * (bank.saturating_sub(1)) as usize;
+            self.rom[offset + bank_offset]
+        }
+    }
+
+    fn mbc5_rom_read_byte(&self, offset: usize) -> u8 {
+        if offset < 0x4000 {
+            self.rom[offset]
+        } else {
+            let bank = (self.rom_bank_hi as u16) & 1 << 8 | self.rom_bank as u16;
             let bank_offset = 0x4000 * (bank.saturating_sub(1)) as usize;
             self.rom[offset + bank_offset]
         }
@@ -165,6 +190,7 @@ impl Header {
             0x02 => Mbc::Mbc1Ram,
             0x03 => Mbc::Mbc1RamBat,
             0x13 => Mbc::Mbc3RamBat,
+            0x1B => Mbc::Mbc5RamBat,
             _ => panic!("MBC type {:#x} not yet supported!", rom[0x147])
         };
         let rom_size = match rom[0x148] {
@@ -206,6 +232,7 @@ enum Mbc {
     Mbc1Ram,
     Mbc1RamBat,
     Mbc3RamBat,
+    Mbc5RamBat,
 }
 
 #[derive(Debug)]

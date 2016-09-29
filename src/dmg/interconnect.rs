@@ -17,6 +17,7 @@ pub struct Interconnect {
     boot: Box<[u8]>,
     cart: Cart,
 
+    cgb_ram_bank: u8,
     ram: Box<[u8]>,
     hram: Box<[u8]>,
 
@@ -45,6 +46,7 @@ impl Interconnect {
             boot: boot_rom,
             cart: Cart::new(cart_rom),
 
+            cgb_ram_bank: 0,
             ram: vec![0; RAM_SIZE].into_boxed_slice(),
             hram: vec![0; 128].into_boxed_slice(),
 
@@ -137,8 +139,9 @@ impl Interconnect {
             Addr::PpuWindowX => self.ppu.wx,
 
             Addr::CgbSpeedSwitch => 0, // TODO CGB
+            Addr::PpuDestVramBank => 0, // TODO CGB
             Addr::BootromDisable => if self.in_bootrom { 1 } else { 0 },
-            // Addr::CgbRamBank => self.cgb_ram_bank,
+            Addr::CgbRamBank => self.cgb_ram_bank & 0x7,
             Addr::InterruptsEnable => self.ie_reg,
             Addr::FF7F => 0xFF,
         }
@@ -237,7 +240,9 @@ impl Interconnect {
             Addr::PpuWindowX => self.ppu.wx = value,
 
             Addr::CgbSpeedSwitch => {}, // TODO CGB
+            Addr::PpuDestVramBank => {}, // TODO CGB
             Addr::BootromDisable => self.in_bootrom = false,
+            Addr::CgbRamBank => self.cgb_ram_bank = value & 0x7,
             Addr::InterruptsEnable => self.ie_reg = value,
             Addr::FF7F => {},
         }
@@ -267,6 +272,12 @@ impl Interconnect {
             self.dma();
         }
 
+        // Timer Interrupt
+        if self.timer.step(cycles) {
+            self.iflags |= 1 << 2;
+        }
+
+        self.ppu.step(cycles);
         // Vblank Interrupt
         if self.ppu.line == 144 && self.ppu.enter_vblank {
             self.iflags |= 1 << 0;
@@ -290,7 +301,7 @@ impl Interconnect {
                 self.ppu.enter_mode0 = false;
                 self.iflags |= 1 << 1;
             },
-            0b01 => if mode1_int && self.ppu.enter_mode1 {
+            0b01 => if (mode1_int || mode2_int) && self.ppu.enter_mode1 {
                 self.ppu.enter_mode1 = false;
                 self.iflags |= 1 << 1;
             },
@@ -300,13 +311,6 @@ impl Interconnect {
             },
             _ => {}
         }
-
-        // Timer Interrupt
-        if self.timer.step(cycles) {
-            self.iflags |= 1 << 2;
-        }
-
-        self.ppu.step(cycles);
     }
 
     fn dma(&mut self) {
@@ -318,19 +322,14 @@ impl Interconnect {
         let slice = match mem_map::map_addr(addr) {
             Addr::Rom(offset) => &self.cart.rom[offset..],
             Addr::Ram(offset) => &self.ram[offset..],
-            Addr::Vram(offset) => {
-                self.ppu.dma_from_vram(offset);
-                return;
-            },
+            Addr::Vram(offset) => panic!("dma from vram not implemented"),
             Addr::Xram(offset) => &self.cart.ram[offset..],
             Addr::Echo(offset) => &self.ram[offset..],
             _ => panic!("Can't DMA from addresses higher than 0xF100")
         };
         let x = self.dma_counter as usize;
-        if self.dma_counter != 0 {
-            self.ppu.write_oam(x - 1, self.dma_buffer)
-        }
-        self.dma_buffer = slice[x];
+        self.ppu.write_oam(x, slice[x]);
+        // self.dma_buffer = slice[x];
         self.dma_counter += 1;
     }
 

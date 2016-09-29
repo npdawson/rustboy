@@ -92,7 +92,7 @@ fn main() {
         renderer.clear();
         renderer.copy(&texture, None, None);
         renderer.present();
-        // std::thread::sleep(time::Duration::from_millis(1));
+        std::thread::sleep(time::Duration::from_millis(1));
     }
 }
 
