@@ -71,7 +71,7 @@ impl Cart {
     }
 
     pub fn ram_write_byte(&mut self, offset: usize, value: u8) {
-        if self.ram_timer_enable {
+        if self.ram_timer_enable && self.ram.len() != 0 {
             self.ram[offset] = value;
         }
     }

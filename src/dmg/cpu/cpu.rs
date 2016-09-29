@@ -23,6 +23,8 @@ pub struct Cpu {
     ime_next_cycle: bool,
     // halted, waiting for interrupt
     pub halted: bool,
+    // halted, bugged state, won't jump to interrupt
+    pub halt_no_jump: bool,
     // stopped, waiting for button press
     pub stopped: bool,
     // clock time of last instruction
@@ -48,6 +50,7 @@ impl Cpu {
             ime: true,
             ime_next_cycle: false,
             halted: false,
+            halt_no_jump: false,
             stopped: false,
             // clock time of last instruction
             last_m: 0,
@@ -61,7 +64,7 @@ impl Cpu {
     }
 
     pub fn step(&mut self, interconnect: &mut Interconnect) -> usize {
-        if self.halted || self.stopped {
+        if self.halted || self.stopped || self.halt_no_jump {
             1 // wait for interrupt/button press
         } else {
             if self.ime_next_cycle {
@@ -352,8 +355,22 @@ impl Cpu {
     }
 
     fn halt(&mut self, interconnect: &mut Interconnect) {
-        // TODO halt bug
-        self.halted = true;
+        if !self.ime {
+            let ie = interconnect.read_byte(0xffff);
+            let iflags = interconnect.read_byte(0xff0f);
+            if ie & iflags & 0x1f == 0 {
+                self.halt_no_jump = true;
+            } else {
+                // TODO halt bug
+                let pc = self.reg_pc;
+                let instr = Instruction::fetch_halt_bug(pc, interconnect);
+                let cycles = self.execute(instr, interconnect);
+                // self.last_m = cycles;
+                // self.clock_m += cycles;
+            }
+        } else {
+            self.halted = true;
+        }
     }
 
     fn inc(&mut self, op: Operand8, interconnect: &mut Interconnect) {

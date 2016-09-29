@@ -44,6 +44,10 @@ impl Dmg {
             let enabled = en_flags >> bit & 0b1 != 0;
             if flagged && enabled {
                 self.cpu.halted = false;
+                if self.cpu.halt_no_jump {
+                    self.cpu.halt_no_jump = false;
+                    return 0;
+                }
                 if self.cpu.ime {
                     self.interconnect.write_byte(0xFF0F, int_flags & !(1 << bit));
                     return self.interrupt(bit);
