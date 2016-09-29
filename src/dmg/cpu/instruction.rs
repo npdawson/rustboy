@@ -25,6 +25,17 @@ impl Instruction {
         }
     }
 
+    pub fn fetch_halt_bug(pc: u16, interconnect: &mut Interconnect) -> Instruction {
+        let opcode = interconnect.read_byte(pc);
+        let imm16 = interconnect.read_word(pc);
+        let (bytes, cycles, op) = decode(opcode, imm16);
+        Instruction {
+            opcode: op,
+            bytes: bytes,
+            cycles: cycles
+        }
+    }
+
     pub fn opcode(&self) -> Opcode {
         self.opcode
     }
