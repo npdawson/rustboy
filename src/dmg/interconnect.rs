@@ -141,6 +141,7 @@ impl Interconnect {
             Addr::CgbSpeedSwitch => 0, // TODO CGB
             Addr::PpuDestVramBank => 0, // TODO CGB
             Addr::BootromDisable => if self.in_bootrom { 1 } else { 0 },
+            Addr::CgbIrComms => 2, // TODO CGB
             Addr::CgbRamBank => self.cgb_ram_bank & 0x7,
             Addr::InterruptsEnable => self.ie_reg,
             Addr::FF7F => 0xFF,
@@ -242,6 +243,7 @@ impl Interconnect {
             Addr::CgbSpeedSwitch => {}, // TODO CGB
             Addr::PpuDestVramBank => {}, // TODO CGB
             Addr::BootromDisable => self.in_bootrom = false,
+            Addr::CgbIrComms => {}, // TODO CGB
             Addr::CgbRamBank => self.cgb_ram_bank = value & 0x7,
             Addr::InterruptsEnable => self.ie_reg = value,
             Addr::FF7F => {},

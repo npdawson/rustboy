@@ -197,16 +197,15 @@ impl Cpu {
             },
             _ => unreachable!()
         };
-        if self.flag_reg.carry {
-            value = value.wrapping_add(1);
-        }
-        let result = old.wrapping_add(value);
+        let carry = if self.flag_reg.carry {1} else {0};
+        let result = old.wrapping_add(value).wrapping_add(carry);
         self.reg_a = result;
         self.flag_reg.zero = result == 0;
         self.flag_reg.sub = false;
         self.flag_reg.half =
-            ((old & 0xF) + (value & 0xF)) & 0x10 == 0x10;
-        self.flag_reg.carry = ((old as u16) + (value as u16)) & 0x100 == 0x100;
+            ((old & 0xF) + (value & 0xF) + carry) & 0x10 == 0x10;
+        self.flag_reg.carry =
+            ((old as u16) + (value as u16) + carry as u16) & 0x100 == 0x100;
     }
 
     fn add_hl(&mut self, reg: Reg16) {
@@ -300,18 +299,21 @@ impl Cpu {
         // decimal adjust accumulator
         let old = self.reg_a;
         let mut value = 0u8;
+        let mut carry = false;
         if !self.flag_reg.sub {
             if self.flag_reg.half || (old & 0xF) > 9 {
                 value = value.wrapping_add(0x06);
             }
-            if self.flag_reg.carry || (old > 0x9F) {
+            if self.flag_reg.carry || (old > 0x99) {
                 value = value.wrapping_add(0x60);
+                carry = true;
             }
         } else {
             if self.flag_reg.half {
                 value = value.wrapping_sub(0x06);
             }
             if self.flag_reg.carry {
+                carry = true;
                 value = value.wrapping_sub(0x60);
             }
         };
@@ -319,8 +321,7 @@ impl Cpu {
         self.reg_a = result;
         self.flag_reg.zero = result == 0;
         self.flag_reg.half = false;
-        self.flag_reg.carry =
-            (old as u16).wrapping_add(value as u16) >= 0x100;
+        self.flag_reg.carry = carry;
     }
 
     fn dec(&mut self, op: Operand8, interconnect: &mut Interconnect) {
@@ -611,18 +612,13 @@ impl Cpu {
             },
             _ => unreachable!()
         };
-        let result = if self.flag_reg.carry {
-            self.flag_reg.carry = old < value.wrapping_add(1);
-            self.flag_reg.half = old & 0xf < value.wrapping_add(1) & 0xf;
-            old.wrapping_sub(value).wrapping_sub(1)
-        } else {
-            self.flag_reg.carry = old < value;
-            self.flag_reg.half = old & 0xf < value & 0xf;
-            old.wrapping_sub(value)
-        };
+        let carry = if self.flag_reg.carry {1} else {0};
+        let result = old.wrapping_sub(value).wrapping_sub(carry);
         self.reg_a = result;
         self.flag_reg.zero = result == 0;
         self.flag_reg.sub = true;
+        self.flag_reg.half = (old & 0xf) < (value & 0xf) + carry;
+        self.flag_reg.carry = (old as u16) < (value as u16) + (carry as u16);
     }
 
     fn scf(&mut self) {
