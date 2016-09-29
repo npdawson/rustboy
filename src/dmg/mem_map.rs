@@ -73,9 +73,11 @@ const PPU_OBJ0_PALETTE: u16 = 0xFF48;
 const PPU_OBJ1_PALETTE: u16 = 0xFF49;
 const PPU_WINDOW_Y: u16 = 0xFF4A;
 const PPU_WINDOW_X: u16 = 0xFF4B;
+
 const CGB_SPEED_SWITCH: u16 = 0xFF4D;
 const CGB_VRAM_BANK: u16 = 0xFF4F;
 const BOOTROM_DISABLE: u16 = 0xFF50;
+const CGB_IR_COMMS: u16 = 0xff56;
 const CGB_RAM_BANK: u16 = 0xFF70;
 
 const HRAM_START: u16 = 0xFF80;
@@ -200,7 +202,7 @@ pub enum Addr {
     // HDMA3         // FF53 (CGB only) New DMA Dest, High
     // HDMA4         // FF54 (CGB only) New DMA Dest, Low
     // HDMA5         // FF55 (CGB only) New DMA Length/Mode/Start
-    // RP            // FF56 (CGB only) IR Comm Port
+    CgbIrComms,      // FF56 (CGB only) IR Comm Port
     // CGB BCPS/BGPI // FF68 Background Palette Index
     // CGB BCPD/BGPD // FF69 Background Palette Data
     // CGB OCPS/OBPI // FF6A SpritePalette Index
@@ -291,6 +293,7 @@ pub fn map_addr(addr: u16) -> Addr {
         CGB_SPEED_SWITCH => Addr::CgbSpeedSwitch,
         CGB_VRAM_BANK => Addr::PpuDestVramBank,
         BOOTROM_DISABLE => Addr::BootromDisable,
+        CGB_IR_COMMS => Addr::CgbIrComms,
         CGB_RAM_BANK => Addr::CgbRamBank,
         IEREG => Addr::InterruptsEnable,
         0xFF7F => Addr::FF7F,

@@ -34,7 +34,7 @@ fn main() {
     let video = sdl_context.video().unwrap();
 
     // Create window
-    let window = video.window("Rustboy", 320, 288)
+    let window = video.window("Rustboy", 640, 576)
         .position_centered().opengl()
         .build().unwrap();
 

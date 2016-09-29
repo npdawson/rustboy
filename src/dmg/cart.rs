@@ -45,6 +45,7 @@ impl Cart {
             Mbc::Mbc1 |
             Mbc::Mbc1Ram |
             Mbc::Mbc1RamBat => self.mbc1_rom_read_byte(offset),
+            Mbc::Mbc3TimerRam => self.mbc1_rom_read_byte(offset),
             Mbc::Mbc3RamBat => self.mbc1_rom_read_byte(offset),
             Mbc::Mbc5RamBat => self.mbc5_rom_read_byte(offset),
         }
@@ -88,6 +89,7 @@ impl Cart {
             Mbc::Mbc1 |
             Mbc::Mbc1Ram |
             Mbc::Mbc1RamBat => self.mbc1_write(offset, value),
+            Mbc::Mbc3TimerRam => self.mbc1_write(offset, value),
             Mbc::Mbc3RamBat => self.mbc3_write(offset, value),
             Mbc::Mbc5RamBat => self.mbc5_write(offset, value),
         }
@@ -180,6 +182,9 @@ impl Header {
             0xC0 => CgbFlag::Only,
             _ => CgbFlag::No
         };
+        if let CgbFlag::Only = cgb {
+            panic!("CGB-only games not supported!");
+        }
         let sgb = match rom[0x146] {
             0x03 => SgbFlag::Yes,
             _ => SgbFlag::No
@@ -189,6 +194,7 @@ impl Header {
             0x01 => Mbc::Mbc1,
             0x02 => Mbc::Mbc1Ram,
             0x03 => Mbc::Mbc1RamBat,
+            0x10 => Mbc::Mbc3TimerRam,
             0x13 => Mbc::Mbc3RamBat,
             0x1B => Mbc::Mbc5RamBat,
             _ => panic!("MBC type {:#x} not yet supported!", rom[0x147])
@@ -231,6 +237,7 @@ enum Mbc {
     Mbc1,
     Mbc1Ram,
     Mbc1RamBat,
+    Mbc3TimerRam,
     Mbc3RamBat,
     Mbc5RamBat,
 }
