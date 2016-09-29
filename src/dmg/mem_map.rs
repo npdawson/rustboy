@@ -74,6 +74,7 @@ const PPU_OBJ1_PALETTE: u16 = 0xFF49;
 const PPU_WINDOW_Y: u16 = 0xFF4A;
 const PPU_WINDOW_X: u16 = 0xFF4B;
 const CGB_SPEED_SWITCH: u16 = 0xFF4D;
+const CGB_VRAM_BANK: u16 = 0xFF4F;
 const BOOTROM_DISABLE: u16 = 0xFF50;
 const CGB_RAM_BANK: u16 = 0xFF70;
 
@@ -192,7 +193,7 @@ pub enum Addr {
     PpuWindowX,     // FF4B WX
 
     CgbSpeedSwitch, // FFAD, cpu speed switch & status
-    // PpuDestVramBank // FF4F
+    PpuDestVramBank, // FF4F
     BootromDisable,  // FF50
     // HDMA1         // FF51 (CGB only) New DMA Source, High
     // HDMA2         // FF52 (CGB only) New DMA Source, Low
@@ -205,7 +206,7 @@ pub enum Addr {
     // CGB OCPS/OBPI // FF6A SpritePalette Index
     // CGB OCPD/OBPD // FF6B Sprite Palette Data
     // FF6C - Undocumented (FEh) - Bit 0 (Read/Write) - CGB Mode Only
-    // CgbRamBank,      // FF70 SVBK
+    CgbRamBank,      // FF70 SVBK
     // FF6C - Undocumented (FEh) - Bit 0 (Read/Write) - CGB Mode Only
     // FF72 - Undocumented (00h) - Bit 0-7 (Read/Write)
     // FF73 - Undocumented (00h) - Bit 0-7 (Read/Write)
@@ -288,8 +289,9 @@ pub fn map_addr(addr: u16) -> Addr {
         PPU_WINDOW_X => Addr::PpuWindowX,
 
         CGB_SPEED_SWITCH => Addr::CgbSpeedSwitch,
+        CGB_VRAM_BANK => Addr::PpuDestVramBank,
         BOOTROM_DISABLE => Addr::BootromDisable,
-        // CGB_RAM_BANK => Addr::CgbRamBank,
+        CGB_RAM_BANK => Addr::CgbRamBank,
         IEREG => Addr::InterruptsEnable,
         0xFF7F => Addr::FF7F,
         _ => panic!("Unrecognized address: {:#x}", addr)

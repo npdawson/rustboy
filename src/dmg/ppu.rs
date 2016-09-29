@@ -6,6 +6,7 @@
 const SCREEN_WIDTH: usize = 160;
 const SCREEN_HEIGHT: usize = 144;
 const SCREEN_AREA: usize = SCREEN_WIDTH * SCREEN_HEIGHT;
+const BLANK_SCREEN: [Color; SCREEN_AREA] = [Color::Off; SCREEN_AREA];
 
 use std::cmp::Ordering;
 use byteorder::{ByteOrder, LittleEndian};
@@ -15,8 +16,8 @@ pub struct Ppu {
     vram: Box<[u8]>,
     oam: Box<[Sprite]>,
     tileset: Box<[Tile]>,
+    tile_map0: Box<[u8]>,
     tile_map1: Box<[u8]>,
-    tile_map2: Box<[u8]>,
 
     fb: Box<[Color]>,
     mode: Mode,
@@ -62,10 +63,10 @@ impl Ppu {
             vram: Box::new([0; 0x2000]),
             oam: Box::new([Sprite::new(); 40]),
             tileset: Box::new([Tile::new(); 384]),
+            tile_map0: Box::new([0; 0x400]),
             tile_map1: Box::new([0; 0x400]),
-            tile_map2: Box::new([0; 0x400]),
 
-            fb: Box::new([Color::Off; SCREEN_AREA]),
+            fb: Box::new(BLANK_SCREEN),
             mode: Mode::Oam,
             modeclock: 0,
             line: 0,
@@ -85,7 +86,7 @@ impl Ppu {
             obj_display: true,
             obj_size: SpriteSize::Normal,
             bg_tilemap_select: Tilemap::Map0,    // bit 3
-            bg_win_tileset_select: Tileset::Set0,    // bit 4
+            bg_win_tileset_select: Tileset::Set1,    // bit 4
             win_display: true,
             win_tilemap_select: Tilemap::Map0,
             lcd_enable: true, // bit 7
@@ -114,23 +115,21 @@ impl Ppu {
         self.modeclock += last_t;
         match self.mode {
             Mode::Oam => {
-                if self.modeclock >= 80 {
+                if self.modeclock > 80 {
                     self.modeclock = 0;
                     self.mode = Mode::Vram;
                 }
             }
             Mode::Vram => {
-                if self.modeclock == 4 {
-                    self.draw_line();
-                }
-                if self.modeclock >= 172 {
+                if self.modeclock > 168 {
                     self.modeclock = 0;
                     self.enter_mode0 = true;
+                    self.draw_line();
                     self.mode = Mode::Hblank;
                 }
             }
             Mode::Hblank => {
-                if self.modeclock >= 204 {
+                if self.modeclock > 200 {
                     self.modeclock = 0;
                     self.line += 1;
                     if self.line == 144 {
@@ -144,7 +143,7 @@ impl Ppu {
                 }
             }
             Mode::Vblank => {
-                if self.modeclock >= 456 {
+                if self.modeclock > 452 {
                     self.modeclock = 0;
                     self.line += 1;
                     if self.line > 153 {
@@ -165,8 +164,8 @@ impl Ppu {
                     let tile = &self.tileset[addr / 16];
                     tile.data[addr % 16]
                 },
-                0x1800 ... 0x1BFF => self.tile_map1[addr - 0x1800],
-                _ => self.tile_map2[addr - 0x1C00]
+                0x1800 ... 0x1BFF => self.tile_map0[addr - 0x1800],
+                _ => self.tile_map1[addr - 0x1C00]
             }
         }
     }
@@ -188,8 +187,8 @@ impl Ppu {
                     let tile = &mut self.tileset[addr / 16];
                     tile.data[addr % 16] = value;
                 },
-                0x1800 ... 0x1BFF => self.tile_map1[addr - 0x1800] = value,
-                _ => self.tile_map2[addr - 0x1C00] = value
+                0x1800 ... 0x1BFF => self.tile_map0[addr - 0x1800] = value,
+                _ => self.tile_map1[addr - 0x1C00] = value
             }
         }
     }
@@ -273,8 +272,8 @@ impl Ppu {
             Tilemap::Map0 => 0
         };
         let bit4 = match self.bg_win_tileset_select {
-            Tileset::Set0 => 1 << 4,
-            Tileset::Set1 => 0
+            Tileset::Set0 => 0,
+            Tileset::Set1 => 1 << 4
         };
         let bit5 = if self.win_display { 1 << 5 } else { 0 };
         let bit6 = match self.win_tilemap_select {
@@ -299,9 +298,9 @@ impl Ppu {
             Tilemap::Map0
         };
         self.bg_win_tileset_select = if value & (1 << 4) != 0 {
-            Tileset::Set0
-        } else {
             Tileset::Set1
+        } else {
+            Tileset::Set0
         };
         self.win_display = value & (1 << 5) != 0;
         self.win_tilemap_select = if value & (1 << 6) != 0 {
@@ -310,9 +309,14 @@ impl Ppu {
             Tilemap::Map0
         };
         self.lcd_enable = value & (1 << 7) != 0;
+        if !self.lcd_enable {
+            self.line = 0;
+            self.fb = Box::new(BLANK_SCREEN);
+        }
     }
 
     pub fn read_lcd_stat(&self) -> u8 {
+        1 << 7 |
         (if self.coincidence_int  { 1 << 6 } else { 0 }) |
         (if self.mode2oam_int     { 1 << 5 } else { 0 }) |
         (if self.mode1vblank_int  { 1 << 4 } else { 0 }) |
@@ -352,35 +356,30 @@ impl Ppu {
         let mut bg_priority = [false; SCREEN_WIDTH];
 
         if self.bg_display {
-            // let map_offset: usize = match self.bg_tilemap_select {
-            //     Tilemap::Map0 => 0x1800,
-            //     Tilemap::Map1 => 0x1C00
-            // };
             let tile_map = if self.bg_tilemap_select == Tilemap::Map1 {
-                &self.tile_map2
-            } else {
                 &self.tile_map1
+            } else {
+                &self.tile_map0
             };
 
             let y = self.line.wrapping_add(self.scy);
-            let row = (y >> 3) as usize;
+            let row = (y / 8) as usize;
             for i in 0..SCREEN_WIDTH {
                 let x = (i as u8).wrapping_add(self.scx);
-                let col = (x >> 3) as usize;
+                let col = (x / 8) as usize;
                 let raw_tile_num = tile_map[row * 32 + col];
 
                 let tile_num =
-                    if raw_tile_num < 128
-                    && self.bg_win_tileset_select == Tileset::Set0 {
-                        256 + (raw_tile_num as usize)
+                    if self.bg_win_tileset_select == Tileset::Set0 {
+                        128 + ((raw_tile_num as i8 as i16) + 128) as usize
                     } else {
                         raw_tile_num as usize
                     };
                 let tile = &self.tileset[tile_num];
 
                 let line = (y % 8) * 2;
-                let data1 = tile.data[line as usize];
-                let data2 = tile.data[line as usize + 1];
+                let data1 = tile.data[(line as u16) as usize];
+                let data2 = tile.data[(line as u16 + 1) as usize];
 
                 let bit = (x % 8).wrapping_sub(7).wrapping_mul(0xFF) as usize;
                 let color_value = ((data2 >> bit) << 1) & 2
@@ -392,14 +391,10 @@ impl Ppu {
             }
         }
         if self.win_display && self.wy <= self.line {
-            // let map_offset: usize = match self.win_tilemap_select {
-            //     Tilemap::Map0 => 0x1800,
-            //     Tilemap::Map1 => 0x1C00
-            // };
             let tile_map = if self.win_tilemap_select == Tilemap::Map1 {
-                &self.tile_map2
-            } else {
                 &self.tile_map1
+            } else {
+                &self.tile_map0
             };
 
             let window_x = self.wx.wrapping_sub(7);
