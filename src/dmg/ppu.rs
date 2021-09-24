@@ -160,11 +160,11 @@ impl Ppu {
         match self.mode {
             Mode::Vram => 0xFF,
             _ => match addr {
-                0x0000 ... 0x17FF => {
+                0x0000 ..= 0x17FF => {
                     let tile = &self.tileset[addr / 16];
                     tile.data[addr % 16]
                 },
-                0x1800 ... 0x1BFF => self.tile_map0[addr - 0x1800],
+                0x1800 ..= 0x1BFF => self.tile_map0[addr - 0x1800],
                 _ => self.tile_map1[addr - 0x1C00]
             }
         }
@@ -183,11 +183,11 @@ impl Ppu {
         match self.mode {
             Mode::Vram => return,
             _ => match addr {
-                0x0000 ... 0x17FF => {
+                0x0000 ..= 0x17FF => {
                     let tile = &mut self.tileset[addr / 16];
                     tile.data[addr % 16] = value;
                 },
-                0x1800 ... 0x1BFF => self.tile_map0[addr - 0x1800] = value,
+                0x1800 ..= 0x1BFF => self.tile_map0[addr - 0x1800] = value,
                 _ => self.tile_map1[addr - 0x1C00] = value
             }
         }

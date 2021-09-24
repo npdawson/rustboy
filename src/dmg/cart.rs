@@ -97,13 +97,13 @@ impl Cart {
 
     fn mbc1_write(&mut self, offset: usize, value: u8) {
         match offset {
-            0x0000 ... 0x1FFF => self.ram_timer_enable = value & 0xF == 0xA,
-            0x2000 ... 0x3FFF => self.rom_bank = value & 0x1F,
-            0x4000 ... 0x5FFF => {
+            0x0000 ..= 0x1FFF => self.ram_timer_enable = value & 0xF == 0xA,
+            0x2000 ..= 0x3FFF => self.rom_bank = value & 0x1F,
+            0x4000 ..= 0x5FFF => {
                 self.rom_bank = self.rom_bank & 0x1F | (value & 0x3) << 5;
                 self.ram_bank_rtc = value & 0x3;
             },
-            0x6000 ... 0x7FFF => self.rom_ram_mode = match value & 1 {
+            0x6000 ..= 0x7FFF => self.rom_ram_mode = match value & 1 {
                 0 => RomRam::Rom,
                 _ => RomRam::Ram
             },
@@ -113,21 +113,21 @@ impl Cart {
 
     fn mbc3_write(&mut self, offset: usize, value: u8) {
         match offset {
-            0x0000 ... 0x1FFF => self.ram_timer_enable = value & 0xF == 0xA,
-            0x2000 ... 0x3FFF => self.rom_bank = value & 0x1F,
-            0x4000 ... 0x5FFF => self.ram_bank_rtc = value & 0xF,
-            0x6000 ... 0x7FFF => panic!("RTC not yet supported!"),
+            0x0000 ..= 0x1FFF => self.ram_timer_enable = value & 0xF == 0xA,
+            0x2000 ..= 0x3FFF => self.rom_bank = value & 0x1F,
+            0x4000 ..= 0x5FFF => self.ram_bank_rtc = value & 0xF,
+            0x6000 ..= 0x7FFF => panic!("RTC not yet supported!"),
             _ => unreachable!()
         }
     }
 
     fn mbc5_write(&mut self, offset: usize, value: u8) {
         match offset {
-            0x0000 ... 0x1fff => self.ram_timer_enable = value & 0xF == 0xA,
-            0x2000 ... 0x2fff => self.rom_bank = value,
-            0x3000 ... 0x3fff => self.rom_bank_hi = value & 1,
-            0x4000 ... 0x5fff => self.ram_bank_rtc = value & 0xF,
-            0x6000 ... 0x7fff => {},
+            0x0000 ..= 0x1fff => self.ram_timer_enable = value & 0xF == 0xA,
+            0x2000 ..= 0x2fff => self.rom_bank = value,
+            0x3000 ..= 0x3fff => self.rom_bank_hi = value & 1,
+            0x4000 ..= 0x5fff => self.ram_bank_rtc = value & 0xF,
+            0x6000 ..= 0x7fff => {},
             _ => unreachable!()
         }
     }

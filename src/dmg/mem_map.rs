@@ -224,20 +224,20 @@ pub enum Addr {
 
 pub fn map_addr(addr: u16) -> Addr {
     match addr {
-        ROM_START ... ROM_END =>
+        ROM_START ..= ROM_END =>
             Addr::Rom((addr - ROM_START) as usize),
-        VRAM_START ... VRAM_END =>
+        VRAM_START ..= VRAM_END =>
             Addr::Vram((addr - VRAM_START) as usize),
-        XRAM_START ... XRAM_END =>
+        XRAM_START ..= XRAM_END =>
             Addr::Xram((addr - XRAM_START) as usize),
-        WRAM_START ... WRAM_END =>
+        WRAM_START ..= WRAM_END =>
             Addr::Ram((addr - WRAM_START) as usize),
-        ECHO_START ... ECHO_END =>
+        ECHO_START ..= ECHO_END =>
             Addr::Echo((addr - ECHO_START) as usize),
-        OAM_START ... OAM_END =>
+        OAM_START ..= OAM_END =>
             Addr::Oam((addr - OAM_START) as usize),
-        UNUSED_START ... UNUSED_END => Addr::Unused,
-        HRAM_START ... HRAM_END =>
+        UNUSED_START ..= UNUSED_END => Addr::Unused,
+        HRAM_START ..= HRAM_END =>
             Addr::Hram((addr - HRAM_START) as usize),
 
         JOYPAD_REG => Addr::JoypadReg,
@@ -265,7 +265,7 @@ pub fn map_addr(addr: u16) -> Addr {
         APU_CHAN3_VOLUME => Addr::ApuChan3Volume,
         APU_CHAN3_FREQ_LO => Addr::ApuChan3FreqLo,
         APU_CHAN3_FREQ_HI => Addr::ApuChan3FreqHi,
-        APU_WAVE_RAM_START ... APU_WAVE_RAM_END =>
+        APU_WAVE_RAM_START ..= APU_WAVE_RAM_END =>
             Addr::ApuWaveRam((addr - APU_WAVE_RAM_START) as usize),
 
         APU_CHAN4_LENGTH => Addr::ApuChan4Length,
